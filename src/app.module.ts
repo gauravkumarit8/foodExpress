@@ -14,18 +14,27 @@ import { HealthController } from './common/health.controller';
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host: config.get<string>('database.host'),
-        port: config.get<number>('database.port'),
-        username: config.get<string>('database.username'),
-        password: config.get<string>('database.password'),
-        database: config.get<string>('database.name'),
-        autoLoadEntities: true,
-        // Dev-only auto-sync. Once schema stabilizes, switch to real
-        // TypeORM migrations under src/database/migrations instead.
-        synchronize: config.get<string>('nodeEnv') !== 'production',
-      }),
+      useFactory: (config: ConfigService) => {
+        const sslEnabled = config.get<boolean>('database.ssl') ?? false;
+
+        return {
+          type: 'postgres' as const,
+          ...(config.get<string>('database.url')
+            ? { url: config.get<string>('database.url') }
+            : {
+                host: config.get<string>('database.host'),
+                port: config.get<number>('database.port'),
+                username: config.get<string>('database.username'),
+                password: config.get<string>('database.password'),
+                database: config.get<string>('database.name'),
+              }),
+          autoLoadEntities: true,
+          ssl: sslEnabled ? { rejectUnauthorized: false } : false,
+          // Dev-only auto-sync. Once schema stabilizes, switch to real
+          // TypeORM migrations under src/database/migrations instead.
+          synchronize: config.get<string>('nodeEnv') !== 'production',
+        };
+      },
     }),
     UsersModule,
     RestaurantsModule,
