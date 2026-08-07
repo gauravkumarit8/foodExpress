@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateRatingDto } from './dto/create-rating.dto';
 import { OrderStatus } from './entities/order.entity';
 import { JwtAuthGuard } from '../users/auth/jwt-auth.guard';
 
@@ -27,5 +28,10 @@ export class OrdersController {
   @Patch('orders/:id/status')
   updateStatus(@Param('id') id: string, @Body('status') status: OrderStatus) {
     return this.ordersService.updateStatus(id, status);
+  }
+
+  @Post('orders/:id/rating')
+  rateOrder(@Req() req: any, @Param('id') id: string, @Body() dto: CreateRatingDto) {
+    return this.ordersService.rateOrder(req.user.userId, id, dto);
   }
 }

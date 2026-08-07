@@ -1,9 +1,17 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order, OrderStatus } from './entities/order.entity';
 import { OrderStatusHistory } from './entities/order-status-history.entity';
+import { Rating } from './entities/rating.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateRatingDto } from './dto/create-rating.dto';
 
 // The state machine from the architecture doc, enforced in code rather than
 // left as a free-text status column. No transition outside this map is legal.
@@ -24,12 +32,11 @@ export class OrdersService {
     private readonly ordersRepository: Repository<Order>,
     @InjectRepository(OrderStatusHistory)
     private readonly historyRepository: Repository<OrderStatusHistory>,
+    @InjectRepository(Rating)
+    private readonly ratingsRepository: Repository<Rating>,
   ) {}
 
   async create(customerId: string, dto: CreateOrderDto): Promise<Order> {
-    // MVP skeleton: payment integration (charge-before-create, from the
-    // architecture doc's order-placement sequence) plugs in right here,
-    // between computing the total and saving the order.
     const subtotal = dto.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
     const deliveryFee = 30; // flat placeholder — replace with real pricing logic later
     const order = this.ordersRepository.create({
@@ -69,14 +76,37 @@ export class OrdersService {
     const order = await this.findOne(id);
     const allowed = ALLOWED_TRANSITIONS[order.status] ?? [];
     if (!allowed.includes(nextStatus)) {
-      throw new BadRequestException(
-        `Cannot move order from "${order.status}" to "${nextStatus}"`,
-      );
+      throw new BadRequestException(`Cannot move order from "${order.status}" to "${nextStatus}"`);
     }
     order.status = nextStatus;
     const saved = await this.ordersRepository.save(order);
     await this.logStatus(id, nextStatus);
     return saved;
+  }
+
+  async rateOrder(customerId: string, orderId: string, dto: CreateRatingDto): Promise<Rating> {
+    const order = await this.findOne(orderId);
+
+    if (order.customerId !== customerId) {
+      throw new ForbiddenException('You can only rate your own orders');
+    }
+    if (order.status !== OrderStatus.DELIVERED) {
+      throw new BadRequestException('Only delivered orders can be rated');
+    }
+
+    const existing = await this.ratingsRepository.findOne({ where: { orderId } });
+    if (existing) {
+      throw new ConflictException('This order has already been rated');
+    }
+
+    const rating = this.ratingsRepository.create({
+      orderId,
+      customerId,
+      restaurantRating: dto.restaurantRating,
+      riderRating: dto.riderRating,
+      comment: dto.comment,
+    });
+    return this.ratingsRepository.save(rating);
   }
 
   private async logStatus(orderId: string, status: OrderStatus) {

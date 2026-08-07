@@ -12,6 +12,12 @@ import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../modules/users/entities/user.entity';
 import { Restaurant } from '../modules/restaurants/entities/restaurant.entity';
 import { MenuItem } from '../modules/restaurants/entities/menu-item.entity';
+import { Order, OrderStatus } from '../modules/orders/entities/order.entity';
+import { OrderItem } from '../modules/orders/entities/order-item.entity';
+import { OrderStatusHistory } from '../modules/orders/entities/order-status-history.entity';
+import { Payment, PaymentStatus } from '../modules/payments/entities/payment.entity';
+import { Rider } from '../modules/delivery/entities/rider.entity';
+import { DeliveryAssignment } from '../modules/delivery/entities/delivery-assignment.entity';
 
 const dbUrl = process.env.DB_URL?.trim();
 const sslEnabled = (process.env.DB_SSL ?? 'true').toLowerCase() === 'true' || (process.env.DB_SSL ?? 'true').toLowerCase() === '1';
@@ -34,7 +40,17 @@ const dataSource = new DataSource({
         database: process.env.DB_NAME ?? 'foodexpress',
         ssl: sslConfig,
       }),
-  entities: [User, Restaurant, MenuItem],
+  entities: [
+    User,
+    Restaurant,
+    MenuItem,
+    Order,
+    OrderItem,
+    OrderStatusHistory,
+    Payment,
+    Rider,
+    DeliveryAssignment,
+  ],
   synchronize: false,
 });
 
@@ -84,6 +100,11 @@ async function seed() {
   const userRepo = dataSource.getRepository(User);
   const restaurantRepo = dataSource.getRepository(Restaurant);
   const menuRepo = dataSource.getRepository(MenuItem);
+  const orderRepo = dataSource.getRepository(Order);
+  const orderHistoryRepo = dataSource.getRepository(OrderStatusHistory);
+  const paymentRepo = dataSource.getRepository(Payment);
+  const riderRepo = dataSource.getRepository(Rider);
+  const assignmentRepo = dataSource.getRepository(DeliveryAssignment);
 
   let owner = await userRepo.findOne({ where: { email: 'owner@foodexpress.test' } });
   if (!owner) {
@@ -125,6 +146,108 @@ async function seed() {
       );
     }
     console.log(`Created "${restaurant.name}" with ${r.items.length} menu items`);
+  }
+
+  let customer = await userRepo.findOne({ where: { email: 'customer@foodexpress.test' } });
+  if (!customer) {
+    customer = await userRepo.save(
+      userRepo.create({
+        name: 'Demo Customer',
+        email: 'customer@foodexpress.test',
+        passwordHash: await bcrypt.hash('password123', 10),
+        role: UserRole.CUSTOMER,
+      }),
+    );
+    console.log('Created customer account: customer@foodexpress.test / password123');
+  }
+
+  let riderUser = await userRepo.findOne({ where: { email: 'rider@foodexpress.test' } });
+  if (!riderUser) {
+    riderUser = await userRepo.save(
+      userRepo.create({
+        name: 'Demo Rider',
+        email: 'rider@foodexpress.test',
+        passwordHash: await bcrypt.hash('password123', 10),
+        role: UserRole.RIDER,
+      }),
+    );
+    console.log('Created rider account: rider@foodexpress.test / password123');
+  }
+
+  let rider = await riderRepo.findOne({ where: { userId: riderUser.id } });
+  if (!rider) {
+    rider = await riderRepo.save(
+      riderRepo.create({
+        userId: riderUser.id,
+        vehicleType: 'Bike',
+        isActive: true,
+        currentLat: 12.9719,
+        currentLng: 77.6412,
+      }),
+    );
+    console.log('Created demo rider profile');
+  }
+
+  let order = await orderRepo.findOne({ where: { customerId: customer.id } });
+  if (!order) {
+    const restaurants = await restaurantRepo.find();
+    const firstRestaurant = restaurants[0];
+    const menuItems = await menuRepo.find({ where: { restaurantId: firstRestaurant.id } });
+
+    order = await orderRepo.save(
+      orderRepo.create({
+        customerId: customer.id,
+        restaurantId: firstRestaurant.id,
+        status: OrderStatus.PLACED,
+        subtotal: 180,
+        deliveryFee: 30,
+        total: 210,
+        deliveryAddress: 'MG Road, Bengaluru',
+        deliveryLat: 12.9716,
+        deliveryLng: 77.5946,
+        items: [
+          {
+            menuItemId: menuItems[0].id,
+            quantity: 2,
+            unitPrice: menuItems[0].price,
+          },
+        ],
+      } as Partial<Order>),
+    );
+
+    await orderHistoryRepo.save(
+      orderHistoryRepo.create({
+        orderId: order.id,
+        status: OrderStatus.PLACED,
+      }),
+    );
+    console.log('Created sample order for customer');
+  }
+
+  let payment = await paymentRepo.findOne({ where: { orderId: order.id } });
+  if (!payment) {
+    payment = await paymentRepo.save(
+      paymentRepo.create({
+        orderId: order.id,
+        amount: order.total,
+        currency: 'INR',
+        provider: 'stub',
+        status: PaymentStatus.SUCCEEDED,
+        idempotencyKey: `seed-${order.id}`,
+      }),
+    );
+    console.log('Created sample payment for the order');
+  }
+
+  let assignment = await assignmentRepo.findOne({ where: { orderId: order.id } });
+  if (!assignment) {
+    assignment = await assignmentRepo.save(
+      assignmentRepo.create({
+        orderId: order.id,
+        riderId: rider.id,
+      }),
+    );
+    console.log('Created sample delivery assignment');
   }
 
   await dataSource.destroy();

@@ -1,0 +1,693 @@
+{
+  "info": {
+    "_postman_id": "f00dexpr-e551-4c0d-9a11-000000000001",
+    "name": "FoodExpress API",
+    "description": "Test collection for the FoodExpress backend (matches food-delivery-architecture-design.md).\n\n**How to use:**\n1. Import this collection AND the companion environment file, then select the environment (top-right dropdown in Postman).\n2. Run requests roughly top-to-bottom within a folder — later requests reuse IDs saved automatically by earlier ones (jwtToken, userId, restaurantId, menuItemId, orderId) via each request's Tests script.\n3. Typical happy path: Auth (register/login) → Restaurants (create + add menu item) → Orders (create + advance status) → Delivery.\n\nBase URL and the JWT are environment variables (`{{baseUrl}}`, `{{jwtToken}}`) — see the environment file, not hardcoded here.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('API is up', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "description": "Run one of the two Register requests first (or Login if you already have an account). Every request here saves jwtToken automatically — nothing to copy/paste by hand.",
+      "item": [
+        {
+          "name": "Register - Customer",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Customer\",\n  \"email\": \"customer1@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) {",
+                  "    pm.environment.set('jwtToken', data.accessToken);",
+                  "    console.log('jwtToken saved');",
+                  "}",
+                  "pm.test('Registered (201) or already exists (409)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register - Restaurant Owner",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Demo Restaurant Owner\",\n  \"email\": \"owner1@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"restaurant_owner\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) {",
+                  "    pm.environment.set('jwtToken', data.accessToken);",
+                  "    console.log('jwtToken saved (owner account)');",
+                  "}",
+                  "pm.test('Registered (201) or already exists (409)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register - Rider",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Demo Rider\",\n  \"email\": \"rider1@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"rider\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) {",
+                  "    pm.environment.set('jwtToken', data.accessToken);",
+                  "    console.log('jwtToken saved (rider account)');",
+                  "}",
+                  "pm.test('Registered (201) or already exists (409)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"owner1@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) {",
+                  "    pm.environment.set('jwtToken', data.accessToken);",
+                  "    console.log('jwtToken saved');",
+                  "}",
+                  "pm.test('Login succeeded', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get My Profile (auth/me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "me"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.userId) {",
+                  "    pm.environment.set('userId', data.userId);",
+                  "    console.log('userId saved: ' + data.userId);",
+                  "}",
+                  "pm.test('Profile returned', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Restaurants",
+      "description": "Create Restaurant needs {{userId}} — run Auth > Get My Profile first, ideally while logged in as the restaurant-owner account.",
+      "item": [
+        {
+          "name": "List Restaurants",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/restaurants",
+              "host": ["{{baseUrl}}"],
+              "path": ["restaurants"]
+            }
+          }
+        },
+        {
+          "name": "Create Restaurant",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ownerId\": \"{{userId}}\",\n  \"name\": \"Test Kitchen\",\n  \"description\": \"Created from Postman\",\n  \"cityId\": \"{{cityId}}\",\n  \"address\": \"MG Road, Bengaluru\",\n  \"latitude\": 12.9758,\n  \"longitude\": 77.6045\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/restaurants",
+              "host": ["{{baseUrl}}"],
+              "path": ["restaurants"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.id) {",
+                  "    pm.environment.set('restaurantId', data.id);",
+                  "    console.log('restaurantId saved: ' + data.id);",
+                  "}",
+                  "pm.test('Restaurant created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Restaurant by ID",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/restaurants/{{restaurantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["restaurants", "{{restaurantId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Restaurant Menu",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/restaurants/{{restaurantId}}/menu",
+              "host": ["{{baseUrl}}"],
+              "path": ["restaurants", "{{restaurantId}}", "menu"]
+            }
+          }
+        },
+        {
+          "name": "Create Menu Item",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Filter Coffee\",\n  \"description\": \"South Indian filter coffee\",\n  \"category\": \"Beverage\",\n  \"price\": 40\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/restaurants/{{restaurantId}}/menu-items",
+              "host": ["{{baseUrl}}"],
+              "path": ["restaurants", "{{restaurantId}}", "menu-items"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.id) {",
+                  "    pm.environment.set('menuItemId', data.id);",
+                  "    console.log('menuItemId saved: ' + data.id);",
+                  "}",
+                  "pm.test('Menu item created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Menu Item",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 45,\n  \"isAvailable\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/restaurants/{{restaurantId}}/menu-items/{{menuItemId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["restaurants", "{{restaurantId}}", "menu-items", "{{menuItemId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "description": "Create Order needs {{restaurantId}} and {{menuItemId}} from the Restaurants folder. Run the status updates in order — the state machine rejects out-of-sequence transitions (e.g. jumping straight to 'ready'). Rate Order only works once status is 'delivered', only for the customer who placed it, and only once (a second attempt returns 409).",
+      "item": [
+        {
+          "name": "Create Order",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"items\": [\n    {\n      \"menuItemId\": \"{{menuItemId}}\",\n      \"quantity\": 2,\n      \"unitPrice\": 45\n    }\n  ],\n  \"deliveryAddress\": \"221B, 5th Cross, Bengaluru\",\n  \"deliveryLat\": 12.9352,\n  \"deliveryLng\": 77.6245\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.id) {",
+                  "    pm.environment.set('orderId', data.id);",
+                  "    console.log('orderId saved: ' + data.id);",
+                  "}",
+                  "pm.test('Order created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Order by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get My Orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "me", "orders"]
+            }
+          }
+        },
+        {
+          "name": "Update Status - Accepted",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"accepted\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Update Status - Preparing",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"preparing\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Update Status - Ready",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ready\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Update Status - Picked Up",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"picked_up\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "status"]
+            }
+          },
+          "description": "Advances the order's own status field. This is separate from Delivery > Mark Picked Up, which stamps the delivery assignment's own pickedUpAt timestamp — the two aren't currently linked."
+        },
+        {
+          "name": "Update Status - Delivered",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"delivered\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "status"]
+            }
+          },
+          "description": "Required before Rate Order will work — rating checks that the order's status is exactly 'delivered'."
+        },
+        {
+          "name": "Rate Order",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restaurantRating\": 5,\n  \"riderRating\": 4,\n  \"comment\": \"Great food, fast delivery\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/rating",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "rating"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rated (201), already rated (409), or not delivered yet (400)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201, 400, 403, 409]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Delivery",
+      "description": "Flow: log in as a rider account (Auth > Register - Rider, or Login) → Register as Rider → Go Online → now Get Available Riders / Assign will actually have something to work with.",
+      "item": [
+        {
+          "name": "Register as Rider",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicleType\": \"bike\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/delivery/riders",
+              "host": ["{{baseUrl}}"],
+              "path": ["delivery", "riders"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.id) {",
+                  "    pm.environment.set('riderId', data.id);",
+                  "    console.log('riderId saved: ' + data.id);",
+                  "}",
+                  "pm.test('Registered (201) or already a rider (409)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "description": "Uses the currently logged-in account ({{jwtToken}}) as the rider — make sure that's the rider account, not the customer/owner one, before running this."
+        },
+        {
+          "name": "Go Online",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/delivery/riders/me/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["delivery", "riders", "me", "status"]
+            }
+          }
+        },
+        {
+          "name": "Go Offline",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/delivery/riders/me/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["delivery", "riders", "me", "status"]
+            }
+          },
+          "description": "Run this and re-run Get Available Riders below to see the rider disappear from the list."
+        },
+        {
+          "name": "Get Available Riders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/delivery/riders/available",
+              "host": ["{{baseUrl}}"],
+              "path": ["delivery", "riders", "available"]
+            }
+          }
+        },
+        {
+          "name": "Assign Rider to Order",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"riderId\": \"{{riderId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/delivery/assign",
+              "host": ["{{baseUrl}}"],
+              "path": ["delivery", "assign"]
+            }
+          }
+        },
+        {
+          "name": "Mark Picked Up",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/delivery/{{orderId}}/picked-up",
+              "host": ["{{baseUrl}}"],
+              "path": ["delivery", "{{orderId}}", "picked-up"]
+            }
+          }
+        },
+        {
+          "name": "Mark Delivered",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/delivery/{{orderId}}/delivered",
+              "host": ["{{baseUrl}}"],
+              "path": ["delivery", "{{orderId}}", "delivered"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Payment Webhook (stub)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"payment_intent.succeeded\",\n  \"data\": {\n    \"orderId\": \"{{orderId}}\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments/webhook",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "webhook"]
+            }
+          },
+          "description": "This just hits the stub handler (always returns { received: true }) — real signature verification and status updates plug in once a payment provider is chosen."
+        }
+      ]
+    }
+  ]
+}
