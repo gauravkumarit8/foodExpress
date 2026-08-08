@@ -135,15 +135,79 @@ describe('FoodExpress API (e2e)', () => {
       .expect(400);
   });
 
-  it('walks the order through its full status lifecycle', async () => {
-    const path = ['accepted', 'preparing', 'ready', 'picked_up', 'delivered'];
-    for (const status of path) {
+  it('advances the order to ready via the restaurant workflow', async () => {
+    for (const status of ['accepted', 'preparing', 'ready']) {
       await request(app.getHttpServer())
         .patch(`/api/v1/orders/${orderId}/status`)
         .set('Authorization', `Bearer ${customerToken}`)
         .send({ status })
         .expect(200);
     }
+  });
+
+  it('rejects setting picked_up directly on the general status endpoint', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/v1/orders/${orderId}/status`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ status: 'picked_up' })
+      .expect(400);
+  });
+
+  let riderToken: string;
+
+  it('registers a rider and assigns them to the now-ready order', async () => {
+    const riderEmail = `e2e-rider-${suffix}@example.com`;
+    const riderRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ name: 'E2E Rider', email: riderEmail, password: 'password123', role: 'rider' })
+      .expect(201);
+    riderToken = riderRes.body.accessToken;
+
+    const riderProfile = await request(app.getHttpServer())
+      .post('/api/v1/delivery/riders')
+      .set('Authorization', `Bearer ${riderToken}`)
+      .send({ vehicleType: 'bike' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/delivery/assign')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ orderId, riderId: riderProfile.body.id })
+      .expect(201);
+  });
+
+  it('rejects a duplicate assignment for the same order', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/delivery/assign')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ orderId, riderId: 'irrelevant-should-409-first' })
+      .expect(409);
+  });
+
+  it('picking up via the delivery endpoint advances the order status too', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/v1/delivery/${orderId}/picked-up`)
+      .set('Authorization', `Bearer ${riderToken}`)
+      .expect(200);
+
+    const order = await request(app.getHttpServer())
+      .get(`/api/v1/orders/${orderId}`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+    expect(order.body.status).toBe('picked_up');
+  });
+
+  it('delivering via the delivery endpoint advances the order status to delivered', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/v1/delivery/${orderId}/delivered`)
+      .set('Authorization', `Bearer ${riderToken}`)
+      .expect(200);
+
+    const order = await request(app.getHttpServer())
+      .get(`/api/v1/orders/${orderId}`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+    expect(order.body.status).toBe('delivered');
   });
 
   it('rejects an illegal transition once the order is delivered', async () => {

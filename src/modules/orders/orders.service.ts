@@ -25,6 +25,19 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.CANCELLED]: [],
 };
 
+// Statuses settable through the general-purpose PATCH /orders/:id/status
+// endpoint (restaurant/admin actions). picked_up and delivered are
+// deliberately excluded from this set — those only happen as a side effect
+// of the Delivery module's markPickedUp/markDelivered (see DeliveryService),
+// so the order's own status and the actual delivery assignment can never
+// drift apart the way they could before.
+const PUBLICLY_SETTABLE_STATUSES = new Set<OrderStatus>([
+  OrderStatus.ACCEPTED,
+  OrderStatus.PREPARING,
+  OrderStatus.READY,
+  OrderStatus.CANCELLED,
+]);
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -73,6 +86,27 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, nextStatus: OrderStatus): Promise<Order> {
+    if (!PUBLICLY_SETTABLE_STATUSES.has(nextStatus)) {
+      throw new BadRequestException(
+        `"${nextStatus}" can't be set directly — it's driven by the delivery workflow ` +
+          `(see the /delivery endpoints), not the general status endpoint.`,
+      );
+    }
+    return this.transitionTo(id, nextStatus);
+  }
+
+  // Called by DeliveryService, not exposed on a public route directly — this
+  // is what actually keeps the order's status and the delivery assignment's
+  // timestamps in sync instead of two independently-mutable tracks.
+  markPickedUp(id: string): Promise<Order> {
+    return this.transitionTo(id, OrderStatus.PICKED_UP);
+  }
+
+  markDelivered(id: string): Promise<Order> {
+    return this.transitionTo(id, OrderStatus.DELIVERED);
+  }
+
+  private async transitionTo(id: string, nextStatus: OrderStatus): Promise<Order> {
     const order = await this.findOne(id);
     const allowed = ALLOWED_TRANSITIONS[order.status] ?? [];
     if (!allowed.includes(nextStatus)) {

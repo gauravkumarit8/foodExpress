@@ -87,6 +87,31 @@ describe('OrdersService', () => {
         NotFoundException,
       );
     });
+
+    it('rejects setting picked_up directly through the general status endpoint', async () => {
+      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.READY });
+      await expect(service.updateStatus('1', OrderStatus.PICKED_UP)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejects setting delivered directly through the general status endpoint', async () => {
+      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.PICKED_UP });
+      await expect(service.updateStatus('1', OrderStatus.DELIVERED)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('markPickedUp (called by DeliveryService) can reach picked_up where updateStatus cannot', async () => {
+      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.READY });
+      const result = await service.markPickedUp('1');
+      expect(result.status).toBe(OrderStatus.PICKED_UP);
+    });
+
+    it('markDelivered still enforces the underlying state machine', async () => {
+      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.READY }); // not picked_up yet
+      await expect(service.markDelivered('1')).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('rateOrder', () => {

@@ -1,9 +1,16 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Rider } from './entities/rider.entity';
 import { DeliveryAssignment } from './entities/delivery-assignment.entity';
 import { CreateRiderDto } from './dto/create-rider.dto';
+import { OrdersService } from '../orders/orders.service';
+import { OrderStatus } from '../orders/entities/order.entity';
 
 @Injectable()
 export class DeliveryService {
@@ -12,6 +19,7 @@ export class DeliveryService {
     private readonly ridersRepository: Repository<Rider>,
     @InjectRepository(DeliveryAssignment)
     private readonly assignmentsRepository: Repository<DeliveryAssignment>,
+    private readonly ordersService: OrdersService,
   ) {}
 
   findAvailableRiders(): Promise<Rider[]> {
@@ -26,7 +34,7 @@ export class DeliveryService {
     const rider = this.ridersRepository.create({
       userId,
       vehicleType: dto.vehicleType,
-      isActive: true, // registers as online by default — can toggle via setActive
+      isActive: true,
     });
     return this.ridersRepository.save(rider);
   }
@@ -40,22 +48,38 @@ export class DeliveryService {
     return this.ridersRepository.save(rider);
   }
 
-  // MVP scope: admin picks the rider manually from findAvailableRiders().
-  // The real geo-matching/dispatch algorithm from the research doc (§8)
-  // slots in here later, once there are enough riders to need it.
-  assign(orderId: string, riderId: string): Promise<DeliveryAssignment> {
+  async assign(orderId: string, riderId: string): Promise<DeliveryAssignment> {
+    // An order can only go to a rider once the kitchen has actually marked
+    // it ready — otherwise you could assign someone to food that isn't made.
+    const order = await this.ordersService.findOne(orderId);
+    if (order.status !== OrderStatus.READY) {
+      throw new BadRequestException(
+        `Order must be "ready" before a rider can be assigned (currently "${order.status}")`,
+      );
+    }
+
+    const existing = await this.assignmentsRepository.findOne({ where: { orderId } });
+    if (existing) {
+      throw new ConflictException('This order already has a rider assigned');
+    }
+
     const assignment = this.assignmentsRepository.create({ orderId, riderId });
     return this.assignmentsRepository.save(assignment);
   }
 
   async markPickedUp(orderId: string): Promise<DeliveryAssignment> {
     const assignment = await this.findByOrder(orderId);
+    // Drives the order's own status forward — this is the fix: the two
+    // records can no longer disagree, because this is the only path to
+    // OrderStatus.PICKED_UP.
+    await this.ordersService.markPickedUp(orderId);
     assignment.pickedUpAt = new Date();
     return this.assignmentsRepository.save(assignment);
   }
 
   async markDelivered(orderId: string): Promise<DeliveryAssignment> {
     const assignment = await this.findByOrder(orderId);
+    await this.ordersService.markDelivered(orderId);
     assignment.deliveredAt = new Date();
     return this.assignmentsRepository.save(assignment);
   }
