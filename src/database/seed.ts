@@ -54,7 +54,7 @@ const dataSource = new DataSource({
   synchronize: false,
 });
 
-const CITY_ID = '00000000-0000-0000-0000-000000000001'; // placeholder single-city id
+const CITY_ID = '00000000-0000-4000-8000-000000000001'; // placeholder single-city id
 
 const sampleRestaurants = [
   {
