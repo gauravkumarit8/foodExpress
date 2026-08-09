@@ -12,6 +12,7 @@ import { OrderStatusHistory } from './entities/order-status-history.entity';
 import { Rating } from './entities/rating.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateRatingDto } from './dto/create-rating.dto';
+import { RestaurantsService } from '../restaurants/restaurants.service';
 
 // The state machine from the architecture doc, enforced in code rather than
 // left as a free-text status column. No transition outside this map is legal.
@@ -47,10 +48,41 @@ export class OrdersService {
     private readonly historyRepository: Repository<OrderStatusHistory>,
     @InjectRepository(Rating)
     private readonly ratingsRepository: Repository<Rating>,
+    private readonly restaurantsService: RestaurantsService,
   ) {}
 
   async create(customerId: string, dto: CreateOrderDto): Promise<Order> {
-    const subtotal = dto.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+    // Fix: price every item from the real menu record, never from client
+    // input. Previously unitPrice came straight from the request body —
+    // anyone could set it to anything they wanted.
+    const requestedIds = dto.items.map((i) => i.menuItemId);
+    const menuItems = await this.restaurantsService.getMenuItemsByIds(requestedIds);
+    const menuItemsById = new Map(menuItems.map((item) => [item.id, item]));
+
+    let subtotal = 0;
+    const orderItems = dto.items.map((requested) => {
+      const menuItem = menuItemsById.get(requested.menuItemId);
+      if (!menuItem) {
+        throw new BadRequestException(`Menu item ${requested.menuItemId} does not exist`);
+      }
+      if (menuItem.restaurantId !== dto.restaurantId) {
+        throw new BadRequestException(
+          `Menu item "${menuItem.name}" does not belong to the requested restaurant`,
+        );
+      }
+      if (!menuItem.isAvailable) {
+        throw new BadRequestException(`"${menuItem.name}" is currently unavailable`);
+      }
+
+      const realPrice = Number(menuItem.price); // real price from the DB, not the request
+      subtotal += realPrice * requested.quantity;
+      return {
+        menuItemId: menuItem.id,
+        quantity: requested.quantity,
+        unitPrice: realPrice,
+      };
+    });
+
     const deliveryFee = 30; // flat placeholder — replace with real pricing logic later
     const order = this.ordersRepository.create({
       customerId,
@@ -62,11 +94,7 @@ export class OrdersService {
       deliveryAddress: dto.deliveryAddress,
       deliveryLat: dto.deliveryLat,
       deliveryLng: dto.deliveryLng,
-      items: dto.items.map((item) => ({
-        menuItemId: item.menuItemId,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      })),
+      items: orderItems,
     } as Partial<Order>);
     const saved = await this.ordersRepository.save(order);
     await this.logStatus(saved.id, OrderStatus.PLACED);
@@ -110,7 +138,9 @@ export class OrdersService {
     const order = await this.findOne(id);
     const allowed = ALLOWED_TRANSITIONS[order.status] ?? [];
     if (!allowed.includes(nextStatus)) {
-      throw new BadRequestException(`Cannot move order from "${order.status}" to "${nextStatus}"`);
+      throw new BadRequestException(
+        `Cannot move order from "${order.status}" to "${nextStatus}"`,
+      );
     }
     order.status = nextStatus;
     const saved = await this.ordersRepository.save(order);

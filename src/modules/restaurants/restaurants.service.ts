@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Restaurant } from './entities/restaurant.entity';
 import { MenuItem } from './entities/menu-item.entity';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
@@ -16,8 +16,11 @@ export class RestaurantsService {
     private readonly menuItemsRepository: Repository<MenuItem>,
   ) {}
 
-  create(dto: CreateRestaurantDto): Promise<Restaurant> {
-    const restaurant = this.restaurantsRepository.create(dto);
+  create(ownerId: string, dto: CreateRestaurantDto): Promise<Restaurant> {
+    // ownerId comes from the authenticated caller (JWT), never from the
+    // request body — otherwise anyone could create a restaurant "owned" by
+    // someone else's account.
+    const restaurant = this.restaurantsRepository.create({ ...dto, ownerId });
     return this.restaurantsRepository.save(restaurant);
   }
 
@@ -40,18 +43,46 @@ export class RestaurantsService {
     return this.menuItemsRepository.find({ where: { restaurantId: id } });
   }
 
-  async createMenuItem(restaurantId: string, dto: CreateMenuItemDto): Promise<MenuItem> {
-    await this.findOne(restaurantId); // 404s if the restaurant doesn't exist
+  // Used by OrdersService to price an order from real data instead of
+  // trusting whatever the client claims an item costs.
+  getMenuItemsByIds(ids: string[]): Promise<MenuItem[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.menuItemsRepository.findBy({ id: In(ids) });
+  }
+
+  async createMenuItem(
+    restaurantId: string,
+    ownerId: string,
+    dto: CreateMenuItemDto,
+  ): Promise<MenuItem> {
+    await this.assertOwnership(restaurantId, ownerId);
     const item = this.menuItemsRepository.create({ ...dto, restaurantId });
     return this.menuItemsRepository.save(item);
   }
 
-  async updateMenuItem(restaurantId: string, itemId: string, dto: UpdateMenuItemDto): Promise<MenuItem> {
+  async updateMenuItem(
+    restaurantId: string,
+    itemId: string,
+    ownerId: string,
+    dto: UpdateMenuItemDto,
+  ): Promise<MenuItem> {
+    await this.assertOwnership(restaurantId, ownerId);
     const item = await this.menuItemsRepository.findOne({ where: { id: itemId, restaurantId } });
     if (!item) {
       throw new NotFoundException('Menu item not found');
     }
     Object.assign(item, dto);
     return this.menuItemsRepository.save(item);
+  }
+
+  // The core of fix #2: any write scoped to a restaurant checks the caller
+  // actually owns it first. Previously any authenticated user could edit
+  // any restaurant's menu.
+  private async assertOwnership(restaurantId: string, ownerId: string): Promise<Restaurant> {
+    const restaurant = await this.findOne(restaurantId);
+    if (restaurant.ownerId !== ownerId) {
+      throw new ForbiddenException('You do not own this restaurant');
+    }
+    return restaurant;
   }
 }

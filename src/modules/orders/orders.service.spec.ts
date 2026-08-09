@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { jest } from '@jest/globals';
 import {
   BadRequestException,
   ConflictException,
@@ -11,6 +10,7 @@ import { OrdersService } from './orders.service';
 import { Order, OrderStatus } from './entities/order.entity';
 import { OrderStatusHistory } from './entities/order-status-history.entity';
 import { Rating } from './entities/rating.entity';
+import { RestaurantsService } from '../restaurants/restaurants.service';
 
 const createMockRepo = () => ({
   create: jest.fn((x) => x),
@@ -24,11 +24,13 @@ describe('OrdersService', () => {
   let ordersRepo: ReturnType<typeof createMockRepo>;
   let historyRepo: ReturnType<typeof createMockRepo>;
   let ratingsRepo: ReturnType<typeof createMockRepo>;
+  let restaurantsService: { getMenuItemsByIds: jest.Mock };
 
   beforeEach(async () => {
     ordersRepo = createMockRepo();
     historyRepo = createMockRepo();
     ratingsRepo = createMockRepo();
+    restaurantsService = { getMenuItemsByIds: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -36,12 +38,86 @@ describe('OrdersService', () => {
         { provide: getRepositoryToken(Order), useValue: ordersRepo },
         { provide: getRepositoryToken(OrderStatusHistory), useValue: historyRepo },
         { provide: getRepositoryToken(Rating), useValue: ratingsRepo },
+        { provide: RestaurantsService, useValue: restaurantsService },
       ],
     }).compile();
 
     service = module.get<OrdersService>(OrdersService);
   });
 
+  // The actual security fix: price comes from the real menu item, never
+  // from whatever the client sent.
+  describe('create (server-side pricing)', () => {
+    const menuItem = {
+      id: 'item-1',
+      restaurantId: 'r1',
+      name: 'Masala Dosa',
+      price: '90.00', // TypeORM decimal columns come back as strings — deliberately testing that
+      isAvailable: true,
+    };
+
+    it('prices the order from the real menu item, ignoring any client-supplied price', async () => {
+      restaurantsService.getMenuItemsByIds.mockResolvedValue([menuItem]);
+      ordersRepo.create = jest.fn((x) => x);
+
+      // Note: no unitPrice field even sent — the DTO no longer accepts one.
+      const result = await service.create('cust-1', {
+        restaurantId: 'r1',
+        items: [{ menuItemId: 'item-1', quantity: 3 }],
+        deliveryAddress: 'Test St',
+        deliveryLat: 1,
+        deliveryLng: 1,
+      } as any);
+
+      expect(result.subtotal).toBe(270); // 90 * 3, from the DB, not the client
+    });
+
+    it('rejects an order for a menu item that does not exist', async () => {
+      restaurantsService.getMenuItemsByIds.mockResolvedValue([]); // nothing found
+      await expect(
+        service.create('cust-1', {
+          restaurantId: 'r1',
+          items: [{ menuItemId: 'does-not-exist', quantity: 1 }],
+          deliveryAddress: 'Test St',
+          deliveryLat: 1,
+          deliveryLng: 1,
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a menu item that belongs to a different restaurant', async () => {
+      restaurantsService.getMenuItemsByIds.mockResolvedValue([
+        { ...menuItem, restaurantId: 'some-other-restaurant' },
+      ]);
+      await expect(
+        service.create('cust-1', {
+          restaurantId: 'r1',
+          items: [{ menuItemId: 'item-1', quantity: 1 }],
+          deliveryAddress: 'Test St',
+          deliveryLat: 1,
+          deliveryLng: 1,
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an unavailable menu item', async () => {
+      restaurantsService.getMenuItemsByIds.mockResolvedValue([
+        { ...menuItem, isAvailable: false },
+      ]);
+      await expect(
+        service.create('cust-1', {
+          restaurantId: 'r1',
+          items: [{ menuItemId: 'item-1', quantity: 1 }],
+          deliveryAddress: 'Test St',
+          deliveryLat: 1,
+          deliveryLng: 1,
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // This is the whole point of the state machine — protect it from ever
+  // accepting an illegal jump, even after refactors.
   describe('updateStatus (state machine)', () => {
     it('allows placed -> accepted', async () => {
       ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.PLACED });

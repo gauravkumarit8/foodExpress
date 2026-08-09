@@ -1,9 +1,6 @@
 import { IsString, IsNumber, IsOptional, IsUUID } from 'class-validator';
 
 export class CreateRestaurantDto {
-  @IsUUID()
-  ownerId: string;
-
   @IsString()
   name: string;
 

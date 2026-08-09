@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { RestaurantsService } from './restaurants.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
@@ -26,19 +26,24 @@ export class RestaurantsController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  create(@Body() dto: CreateRestaurantDto) {
-    return this.restaurantsService.create(dto);
+  create(@Req() req: any, @Body() dto: CreateRestaurantDto) {
+    return this.restaurantsService.create(req.user.userId, dto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/menu-items')
-  createMenuItem(@Param('id') id: string, @Body() dto: CreateMenuItemDto) {
-    return this.restaurantsService.createMenuItem(id, dto);
+  createMenuItem(@Req() req: any, @Param('id') id: string, @Body() dto: CreateMenuItemDto) {
+    return this.restaurantsService.createMenuItem(id, req.user.userId, dto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id/menu-items/:itemId')
-  updateMenuItem(@Param('id') id: string, @Param('itemId') itemId: string, @Body() dto: UpdateMenuItemDto) {
-    return this.restaurantsService.updateMenuItem(id, itemId, dto);
+  updateMenuItem(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: UpdateMenuItemDto,
+  ) {
+    return this.restaurantsService.updateMenuItem(id, itemId, req.user.userId, dto);
   }
 }

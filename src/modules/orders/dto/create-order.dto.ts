@@ -1,21 +1,17 @@
 import { Type } from 'class-transformer';
-import {
-  IsArray,
-  IsNumber,
-  IsString,
-  IsUUID,
-  ValidateNested,
-} from 'class-validator';
+import { IsArray, IsInt, IsNumber, IsString, IsUUID, Min, ValidateNested } from 'class-validator';
 
 class OrderItemDto {
   @IsUUID()
   menuItemId: string;
 
-  @IsNumber()
+  @IsInt()
+  @Min(1)
   quantity: number;
 
-  @IsNumber()
-  unitPrice: number;
+  // Deliberately no unitPrice/price field here — the server prices every
+  // item from the real menu record (see OrdersService.create). Trusting a
+  // client-supplied price is how you let someone order food for ₹1.
 }
 
 export class CreateOrderDto {
