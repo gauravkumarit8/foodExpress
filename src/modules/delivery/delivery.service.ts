@@ -74,6 +74,18 @@ export class DeliveryService {
       );
     }
 
+    // Fix: previously riderId was never checked against real data — a typo
+    // or a fake ID would still return 201, and because a second assignment
+    // attempt on the same order 409s, that order could never be reassigned
+    // to a real rider afterward. Stuck forever without manual DB surgery.
+    const rider = await this.ridersRepository.findOne({ where: { id: riderId } });
+    if (!rider) {
+      throw new NotFoundException('Rider not found');
+    }
+    if (!rider.isActive) {
+      throw new BadRequestException('This rider is currently offline');
+    }
+
     const existing = await this.assignmentsRepository.findOne({ where: { orderId } });
     if (existing) {
       throw new ConflictException('This order already has a rider assigned');

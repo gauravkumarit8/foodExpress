@@ -56,6 +56,36 @@ describe('OrdersService', () => {
       isAvailable: true,
     };
 
+    beforeEach(() => {
+      restaurantsService.findOne.mockResolvedValue({ id: 'r1', isOpen: true });
+    });
+
+    it('rejects an order for a restaurant that does not exist', async () => {
+      restaurantsService.findOne.mockRejectedValue(new NotFoundException('Restaurant not found'));
+      await expect(
+        service.create('cust-1', {
+          restaurantId: 'does-not-exist',
+          items: [{ menuItemId: 'item-1', quantity: 1 }],
+          deliveryAddress: 'Test St',
+          deliveryLat: 1,
+          deliveryLng: 1,
+        } as any),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects an order placed at a closed restaurant', async () => {
+      restaurantsService.findOne.mockResolvedValue({ id: 'r1', isOpen: false });
+      await expect(
+        service.create('cust-1', {
+          restaurantId: 'r1',
+          items: [{ menuItemId: 'item-1', quantity: 1 }],
+          deliveryAddress: 'Test St',
+          deliveryLat: 1,
+          deliveryLng: 1,
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('prices the order from the real menu item, ignoring any client-supplied price', async () => {
       restaurantsService.getMenuItemsByIds.mockResolvedValue([menuItem]);
       ordersRepo.create = jest.fn((x) => x);

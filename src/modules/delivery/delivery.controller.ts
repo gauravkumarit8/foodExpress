@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { DeliveryService } from './delivery.service';
 import { CreateRiderDto } from './dto/create-rider.dto';
+import { AssignDeliveryDto } from './dto/assign-delivery.dto';
 import { JwtAuthGuard } from '../users/auth/jwt-auth.guard';
 
 @Controller('delivery')
@@ -29,8 +30,8 @@ export class DeliveryController {
   }
 
   @Post('assign')
-  assign(@Body('orderId') orderId: string, @Body('riderId') riderId: string) {
-    return this.deliveryService.assign(orderId, riderId);
+  assign(@Body() dto: AssignDeliveryDto) {
+    return this.deliveryService.assign(dto.orderId, dto.riderId);
   }
 
   @Patch(':orderId/picked-up')

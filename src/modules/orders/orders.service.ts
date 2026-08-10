@@ -52,6 +52,16 @@ export class OrdersService {
   ) {}
 
   async create(customerId: string, dto: CreateOrderDto): Promise<Order> {
+    // Fix: previously the restaurant was never checked directly — a fake ID
+    // with real menu items attached would have failed anyway (item lookup
+    // below would find nothing matching), but a closed restaurant's real
+    // menu items would still go through. Belt-and-suspenders: check the
+    // restaurant itself first, explicitly.
+    const restaurant = await this.restaurantsService.findOne(dto.restaurantId);
+    if (!restaurant.isOpen) {
+      throw new BadRequestException('This restaurant is currently closed');
+    }
+
     // Fix: price every item from the real menu record, never from client
     // input. Previously unitPrice came straight from the request body —
     // anyone could set it to anything they wanted.

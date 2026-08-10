@@ -79,14 +79,28 @@ describe('DeliveryService', () => {
       await expect(service.assign('o1', 'rider-1')).rejects.toThrow(BadRequestException);
     });
 
+    it('rejects assigning a rider ID that does not exist — this is the actual fix', async () => {
+      ordersService.findOne.mockResolvedValue({ id: 'o1', status: OrderStatus.READY });
+      ridersRepo.findOne.mockResolvedValue(null); // no such rider
+      await expect(service.assign('o1', 'fake-rider-id')).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects assigning a rider who is currently offline', async () => {
+      ordersService.findOne.mockResolvedValue({ id: 'o1', status: OrderStatus.READY });
+      ridersRepo.findOne.mockResolvedValue({ id: 'rider-1', isActive: false });
+      await expect(service.assign('o1', 'rider-1')).rejects.toThrow(BadRequestException);
+    });
+
     it('rejects a second assignment for the same order', async () => {
       ordersService.findOne.mockResolvedValue({ id: 'o1', status: OrderStatus.READY });
+      ridersRepo.findOne.mockResolvedValue({ id: 'rider-1', isActive: true });
       assignmentsRepo.findOne.mockResolvedValue({ id: 'existing-assignment' });
       await expect(service.assign('o1', 'rider-1')).rejects.toThrow(ConflictException);
     });
 
-    it('creates the assignment once the order is ready and unassigned', async () => {
+    it('creates the assignment once the order is ready, the rider is real and active, and unassigned', async () => {
       ordersService.findOne.mockResolvedValue({ id: 'o1', status: OrderStatus.READY });
+      ridersRepo.findOne.mockResolvedValue({ id: 'rider-1', isActive: true });
       assignmentsRepo.findOne.mockResolvedValue(null);
       const result = await service.assign('o1', 'rider-1');
       expect(result.riderId).toBe('rider-1');

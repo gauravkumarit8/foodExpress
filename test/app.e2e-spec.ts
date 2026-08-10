@@ -322,12 +322,37 @@ describe('FoodExpress API (e2e)', () => {
       .expect(201);
   });
 
-  it('rejects a duplicate assignment for the same order', async () => {
+  it('rejects assigning a rider ID that does not exist (the actual fix from this round)', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delivery/assign')
       .set('Authorization', `Bearer ${customerToken}`)
-      .send({ orderId, riderId: 'irrelevant-should-409-first' })
-      .expect(409);
+      .send({ orderId, riderId: '00000000-0000-4000-8000-000000000000' })
+      .expect(404);
+  });
+
+  it('rejects a duplicate assignment for the same order, even with a second real rider', async () => {
+    const secondRiderEmail = `e2e-rider-2-${suffix}@example.com`;
+    const secondRiderRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'E2E Second Rider',
+        email: secondRiderEmail,
+        password: 'password123',
+        role: 'rider',
+      })
+      .expect(201);
+    const secondRiderToken = secondRiderRes.body.accessToken;
+    const secondRiderProfile = await request(app.getHttpServer())
+      .post('/api/v1/delivery/riders')
+      .set('Authorization', `Bearer ${secondRiderToken}`)
+      .send({ vehicleType: 'bike' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/delivery/assign')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ orderId, riderId: secondRiderProfile.body.id }) // a real, active, different rider
+      .expect(409); // still rejected — the order already has a rider, real or not
   });
 
   it('lets the rider see their own assignment via GET /delivery/mine (the actual fix)', async () => {

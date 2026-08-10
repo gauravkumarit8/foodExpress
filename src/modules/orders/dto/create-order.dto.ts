@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsInt, IsNumber, IsString, IsUUID, Min, ValidateNested } from 'class-validator';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsInt,
+  IsNumber,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 class OrderItemDto {
   @IsUUID()
@@ -19,6 +28,7 @@ export class CreateOrderDto {
   restaurantId: string;
 
   @IsArray()
+  @ArrayMinSize(1) // fix: an empty array previously produced a valid ₹0-item, delivery-fee-only "order"
   @ValidateNested({ each: true })
   @Type(() => OrderItemDto)
   items: OrderItemDto[];

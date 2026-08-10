@@ -16,8 +16,14 @@ import { HealthController } from './common/health.controller';
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     // Global default: 100 requests/minute per IP. Auth endpoints override
     // this with a much tighter limit (see AuthController) since brute-forcing
-    // login/register is the thing that actually needs stopping.
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    // login/register is the thing that actually needs stopping. Skipped
+    // entirely in the test env — rate limiting is an anti-abuse concern for
+    // real traffic, not something that should fight an automated test suite
+    // that legitimately registers several accounts in quick succession.
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60_000, limit: 100 }],
+      skipIf: () => process.env.NODE_ENV === 'test',
+    }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
