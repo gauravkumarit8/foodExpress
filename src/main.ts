@@ -1,10 +1,8 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
-import helmet from 'helmet';
+import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { configureApp } from './configure-app';
 
 // A leaked or default JWT secret means anyone can forge a valid token for
 // any user — this is the single most damaging config mistake possible here,
@@ -32,28 +30,7 @@ async function bootstrap() {
   assertProductionSafety();
 
   const app = await NestFactory.create(AppModule);
-
-  app.use(helmet());
-
-  // CORS_ORIGIN is a comma-separated allowlist (e.g. "https://app.example.com").
-  // Left unset, this defaults to allowing any origin — fine for local dev,
-  // not fine for production. Set it once a frontend domain exists.
-  const corsOrigin = process.env.CORS_ORIGIN;
-  app.enableCors({
-    origin: corsOrigin ? corsOrigin.split(',').map((o) => o.trim()) : true,
-    credentials: true,
-  });
-
-  app.setGlobalPrefix('api/v1');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-    }),
-  );
-  app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new LoggingInterceptor());
+  configureApp(app);
   app.enableShutdownHooks(); // let the app drain in-flight requests on SIGTERM instead of dying mid-request
 
   const port = process.env.PORT ?? 3000;

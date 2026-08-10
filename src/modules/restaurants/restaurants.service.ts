@@ -6,6 +6,7 @@ import { MenuItem } from './entities/menu-item.entity';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
+import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 
 @Injectable()
 export class RestaurantsService {
@@ -30,12 +31,26 @@ export class RestaurantsService {
     return this.restaurantsRepository.find({ where: { isOpen: true } });
   }
 
+  // Fix: previously an owner had no way to find their own restaurant's ID
+  // after creating it, short of scanning the public (open-only) listing.
+  findMine(ownerId: string): Promise<Restaurant[]> {
+    return this.restaurantsRepository.find({ where: { ownerId } });
+  }
+
   async findOne(id: string): Promise<Restaurant> {
     const restaurant = await this.restaurantsRepository.findOne({ where: { id } });
     if (!restaurant) {
       throw new NotFoundException('Restaurant not found');
     }
     return restaurant;
+  }
+
+  // Fix: there was no way to edit a restaurant or toggle it open/closed
+  // after creation at all.
+  async update(id: string, ownerId: string, dto: UpdateRestaurantDto): Promise<Restaurant> {
+    const restaurant = await this.assertOwnership(id, ownerId);
+    Object.assign(restaurant, dto);
+    return this.restaurantsRepository.save(restaurant);
   }
 
   async getMenu(id: string): Promise<MenuItem[]> {

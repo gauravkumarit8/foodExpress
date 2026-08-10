@@ -16,8 +16,8 @@ export class OrdersController {
   }
 
   @Get('orders/:id')
-  findOne(@Param('id') id: string) {
-    return this.ordersService.findOne(id);
+  findOne(@Req() req: any, @Param('id') id: string) {
+    return this.ordersService.getOrderForUser(id, req.user.userId);
   }
 
   @Get('users/me/orders')
@@ -25,9 +25,14 @@ export class OrdersController {
     return this.ordersService.findForCustomer(req.user.userId);
   }
 
+  @Get('restaurants/:restaurantId/orders')
+  findForRestaurant(@Req() req: any, @Param('restaurantId') restaurantId: string) {
+    return this.ordersService.findForRestaurant(restaurantId, req.user.userId);
+  }
+
   @Patch('orders/:id/status')
-  updateStatus(@Param('id') id: string, @Body('status') status: OrderStatus) {
-    return this.ordersService.updateStatus(id, status);
+  updateStatus(@Req() req: any, @Param('id') id: string, @Body('status') status: OrderStatus) {
+    return this.ordersService.updateStatus(id, req.user.userId, status);
   }
 
   @Post('orders/:id/rating')

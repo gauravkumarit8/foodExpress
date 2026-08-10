@@ -24,13 +24,13 @@ describe('OrdersService', () => {
   let ordersRepo: ReturnType<typeof createMockRepo>;
   let historyRepo: ReturnType<typeof createMockRepo>;
   let ratingsRepo: ReturnType<typeof createMockRepo>;
-  let restaurantsService: { getMenuItemsByIds: jest.Mock };
+  let restaurantsService: { getMenuItemsByIds: jest.Mock; findOne: jest.Mock };
 
   beforeEach(async () => {
     ordersRepo = createMockRepo();
     historyRepo = createMockRepo();
     ratingsRepo = createMockRepo();
-    restaurantsService = { getMenuItemsByIds: jest.fn() };
+    restaurantsService = { getMenuItemsByIds: jest.fn(), findOne: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -118,68 +118,93 @@ describe('OrdersService', () => {
 
   // This is the whole point of the state machine — protect it from ever
   // accepting an illegal jump, even after refactors.
-  describe('updateStatus (state machine)', () => {
-    it('allows placed -> accepted', async () => {
-      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.PLACED });
-      const result = await service.updateStatus('1', OrderStatus.ACCEPTED);
+  describe('updateStatus (state machine + authorization)', () => {
+    const restaurant = { id: 'r1', ownerId: 'owner-1' };
+    const baseOrder = { id: '1', restaurantId: 'r1', customerId: 'cust-1' };
+
+    beforeEach(() => {
+      restaurantsService.findOne.mockResolvedValue(restaurant);
+    });
+
+    it('allows the restaurant owner to move placed -> accepted', async () => {
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.PLACED });
+      const result = await service.updateStatus('1', 'owner-1', OrderStatus.ACCEPTED);
       expect(result.status).toBe(OrderStatus.ACCEPTED);
       expect(historyRepo.save).toHaveBeenCalled();
     });
 
-    it('rejects placed -> delivered (skipping every state in between)', async () => {
-      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.PLACED });
-      await expect(service.updateStatus('1', OrderStatus.DELIVERED)).rejects.toThrow(
-        BadRequestException,
+    it('rejects the customer trying to advance the order (only the restaurant can)', async () => {
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.PLACED });
+      await expect(service.updateStatus('1', 'cust-1', OrderStatus.ACCEPTED)).rejects.toThrow(
+        ForbiddenException,
       );
+    });
+
+    it('rejects a completely unrelated user touching the order at all', async () => {
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.PLACED });
+      await expect(
+        service.updateStatus('1', 'total-stranger', OrderStatus.CANCELLED),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows the customer to cancel their own order', async () => {
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.PLACED });
+      await expect(
+        service.updateStatus('1', 'cust-1', OrderStatus.CANCELLED),
+      ).resolves.toBeDefined();
+    });
+
+    it('allows the restaurant owner to cancel too', async () => {
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.PLACED });
+      await expect(
+        service.updateStatus('1', 'owner-1', OrderStatus.CANCELLED),
+      ).resolves.toBeDefined();
+    });
+
+    it('rejects placed -> delivered (skipping every state in between)', async () => {
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.PLACED });
+      await expect(
+        service.updateStatus('1', 'owner-1', OrderStatus.DELIVERED),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('rejects any transition out of delivered (terminal state)', async () => {
-      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.DELIVERED });
-      await expect(service.updateStatus('1', OrderStatus.ACCEPTED)).rejects.toThrow(
-        BadRequestException,
-      );
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.DELIVERED });
+      await expect(
+        service.updateStatus('1', 'owner-1', OrderStatus.ACCEPTED),
+      ).rejects.toThrow(BadRequestException);
     });
 
-    it('rejects any transition out of cancelled (terminal state)', async () => {
-      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.CANCELLED });
-      await expect(service.updateStatus('1', OrderStatus.ACCEPTED)).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('allows cancelling from placed, but not from picked_up', async () => {
-      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.PLACED });
-      await expect(service.updateStatus('1', OrderStatus.CANCELLED)).resolves.toBeDefined();
-
-      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.PICKED_UP });
-      await expect(service.updateStatus('1', OrderStatus.CANCELLED)).rejects.toThrow(
-        BadRequestException,
-      );
+    it('rejects cancelling from picked_up (too late in the flow)', async () => {
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.PICKED_UP });
+      await expect(
+        service.updateStatus('1', 'owner-1', OrderStatus.CANCELLED),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('throws NotFoundException for a missing order', async () => {
       ordersRepo.findOne.mockResolvedValue(null);
-      await expect(service.updateStatus('missing', OrderStatus.ACCEPTED)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.updateStatus('missing', 'owner-1', OrderStatus.ACCEPTED),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('rejects setting picked_up directly through the general status endpoint', async () => {
-      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.READY });
-      await expect(service.updateStatus('1', OrderStatus.PICKED_UP)).rejects.toThrow(
-        BadRequestException,
-      );
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.READY });
+      await expect(
+        service.updateStatus('1', 'owner-1', OrderStatus.PICKED_UP),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('rejects setting delivered directly through the general status endpoint', async () => {
-      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.PICKED_UP });
-      await expect(service.updateStatus('1', OrderStatus.DELIVERED)).rejects.toThrow(
-        BadRequestException,
-      );
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.PICKED_UP });
+      await expect(
+        service.updateStatus('1', 'owner-1', OrderStatus.DELIVERED),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('markPickedUp (called by DeliveryService) can reach picked_up where updateStatus cannot', async () => {
-      ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.READY });
+      ordersRepo.findOne.mockResolvedValue({ ...baseOrder, status: OrderStatus.READY });
       const result = await service.markPickedUp('1');
       expect(result.status).toBe(OrderStatus.PICKED_UP);
     });
@@ -187,6 +212,48 @@ describe('OrdersService', () => {
     it('markDelivered still enforces the underlying state machine', async () => {
       ordersRepo.findOne.mockResolvedValue({ id: '1', status: OrderStatus.READY }); // not picked_up yet
       await expect(service.markDelivered('1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getOrderForUser (view authorization)', () => {
+    const restaurant = { id: 'r1', ownerId: 'owner-1' };
+    const order = { id: 'o1', restaurantId: 'r1', customerId: 'cust-1' };
+
+    it('allows the customer who placed the order to view it', async () => {
+      ordersRepo.findOne.mockResolvedValue(order);
+      await expect(service.getOrderForUser('o1', 'cust-1')).resolves.toEqual(order);
+    });
+
+    it('allows the restaurant owner to view it', async () => {
+      ordersRepo.findOne.mockResolvedValue(order);
+      restaurantsService.findOne.mockResolvedValue(restaurant);
+      await expect(service.getOrderForUser('o1', 'owner-1')).resolves.toEqual(order);
+    });
+
+    it('rejects a stranger — this is the actual security fix', async () => {
+      ordersRepo.findOne.mockResolvedValue(order);
+      restaurantsService.findOne.mockResolvedValue(restaurant);
+      await expect(service.getOrderForUser('o1', 'random-other-user')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
+
+  describe('findForRestaurant (the actual fix — restaurants could not see their own orders before)', () => {
+    const restaurant = { id: 'r1', ownerId: 'owner-1' };
+
+    it('returns orders for the restaurant when called by its actual owner', async () => {
+      restaurantsService.findOne.mockResolvedValue(restaurant);
+      ordersRepo.find.mockResolvedValue([{ id: 'o1' }, { id: 'o2' }]);
+      const result = await service.findForRestaurant('r1', 'owner-1');
+      expect(result).toHaveLength(2);
+    });
+
+    it('rejects anyone who is not the restaurant owner', async () => {
+      restaurantsService.findOne.mockResolvedValue(restaurant);
+      await expect(service.findForRestaurant('r1', 'someone-else')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 

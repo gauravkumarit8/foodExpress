@@ -85,4 +85,31 @@ describe('RestaurantsService', () => {
       expect(menuItemsRepo.findBy).toHaveBeenCalled();
     });
   });
+
+  describe('findMine', () => {
+    it('queries restaurants scoped to the given owner', async () => {
+      restaurantsRepo.find.mockResolvedValue([{ id: 'r1', ownerId: 'owner-1' }]);
+      const result = await service.findMine('owner-1');
+      expect(result).toHaveLength(1);
+      expect(restaurantsRepo.find).toHaveBeenCalledWith({ where: { ownerId: 'owner-1' } });
+    });
+  });
+
+  describe('update', () => {
+    const restaurant = { id: 'r1', ownerId: 'owner-1', name: 'Old Name', isOpen: true };
+
+    it('allows the owner to update their restaurant', async () => {
+      restaurantsRepo.findOne.mockResolvedValue(restaurant);
+      const result = await service.update('r1', 'owner-1', { isOpen: false });
+      expect(result.isOpen).toBe(false);
+      expect(restaurantsRepo.save).toHaveBeenCalled();
+    });
+
+    it('rejects a non-owner trying to update the restaurant', async () => {
+      restaurantsRepo.findOne.mockResolvedValue(restaurant);
+      await expect(service.update('r1', 'someone-else', { isOpen: false })).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
 });

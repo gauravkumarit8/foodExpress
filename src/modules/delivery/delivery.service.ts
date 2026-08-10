@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   BadRequestException,
@@ -48,6 +49,21 @@ export class DeliveryService {
     return this.ridersRepository.save(rider);
   }
 
+  // Fix: there was no way for a rider to see what they'd actually been
+  // assigned — POST /delivery/assign is called by whoever's dispatching,
+  // not the rider themselves, so without this a rider app has no way to
+  // know what to go pick up.
+  async findMyAssignments(userId: string): Promise<DeliveryAssignment[]> {
+    const rider = await this.ridersRepository.findOne({ where: { userId } });
+    if (!rider) {
+      throw new NotFoundException('No rider profile for this account — register first');
+    }
+    return this.assignmentsRepository.find({
+      where: { riderId: rider.id },
+      order: { assignedAt: 'DESC' },
+    });
+  }
+
   async assign(orderId: string, riderId: string): Promise<DeliveryAssignment> {
     // An order can only go to a rider once the kitchen has actually marked
     // it ready — otherwise you could assign someone to food that isn't made.
@@ -67,8 +83,9 @@ export class DeliveryService {
     return this.assignmentsRepository.save(assignment);
   }
 
-  async markPickedUp(orderId: string): Promise<DeliveryAssignment> {
+  async markPickedUp(orderId: string, requestingUserId: string): Promise<DeliveryAssignment> {
     const assignment = await this.findByOrder(orderId);
+    await this.assertIsAssignedRider(assignment, requestingUserId);
     // Drives the order's own status forward — this is the fix: the two
     // records can no longer disagree, because this is the only path to
     // OrderStatus.PICKED_UP.
@@ -77,11 +94,24 @@ export class DeliveryService {
     return this.assignmentsRepository.save(assignment);
   }
 
-  async markDelivered(orderId: string): Promise<DeliveryAssignment> {
+  async markDelivered(orderId: string, requestingUserId: string): Promise<DeliveryAssignment> {
     const assignment = await this.findByOrder(orderId);
+    await this.assertIsAssignedRider(assignment, requestingUserId);
     await this.ordersService.markDelivered(orderId);
     assignment.deliveredAt = new Date();
     return this.assignmentsRepository.save(assignment);
+  }
+
+  // Fix: previously any authenticated user could mark any delivery picked
+  // up or delivered, not just the rider it was actually assigned to.
+  private async assertIsAssignedRider(
+    assignment: DeliveryAssignment,
+    requestingUserId: string,
+  ): Promise<void> {
+    const rider = await this.ridersRepository.findOne({ where: { id: assignment.riderId } });
+    if (!rider || rider.userId !== requestingUserId) {
+      throw new ForbiddenException('You are not the rider assigned to this delivery');
+    }
   }
 
   private async findByOrder(orderId: string): Promise<DeliveryAssignment> {

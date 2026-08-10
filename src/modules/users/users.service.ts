@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -39,5 +39,17 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
     return user;
+  }
+
+  // Fix: previously any authenticated user could view any other user's
+  // profile (email, phone) by ID — the password-hash fix alone didn't
+  // address this, since the rest of the record was never the problem.
+  // There's no legitimate cross-user need for this right now (restaurant
+  // names/details come from the Restaurant entity, not a User lookup).
+  async getProfileForUser(id: string, requesterId: string): Promise<User> {
+    if (id !== requesterId) {
+      throw new ForbiddenException('You can only view your own profile');
+    }
+    return this.findById(id);
   }
 }

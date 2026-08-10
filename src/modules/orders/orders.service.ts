@@ -109,17 +109,57 @@ export class OrdersService {
     return order;
   }
 
+  // Fix: previously any authenticated user could view any order by ID.
+  // Now scoped to the customer who placed it or the restaurant that
+  // received it — the two parties who actually have a reason to see it.
+  async getOrderForUser(id: string, userId: string): Promise<Order> {
+    const order = await this.findOne(id);
+    await this.assertCanView(order, userId);
+    return order;
+  }
+
   findForCustomer(customerId: string): Promise<Order[]> {
     return this.ordersRepository.find({ where: { customerId }, order: { placedAt: 'DESC' } });
   }
 
-  async updateStatus(id: string, nextStatus: OrderStatus): Promise<Order> {
+  // Fix: there was no way for a restaurant to see its own incoming orders
+  // at all — a genuine blocker for a restaurant dashboard, not just a
+  // hardening gap.
+  async findForRestaurant(restaurantId: string, ownerId: string): Promise<Order[]> {
+    const restaurant = await this.restaurantsService.findOne(restaurantId);
+    if (restaurant.ownerId !== ownerId) {
+      throw new ForbiddenException('You do not own this restaurant');
+    }
+    return this.ordersRepository.find({
+      where: { restaurantId },
+      order: { placedAt: 'DESC' },
+    });
+  }
+
+  // Fix: previously any authenticated user could advance or cancel any
+  // order. Advancing (accepted/preparing/ready) is a restaurant action;
+  // cancelling is allowed for either party.
+  async updateStatus(id: string, userId: string, nextStatus: OrderStatus): Promise<Order> {
     if (!PUBLICLY_SETTABLE_STATUSES.has(nextStatus)) {
       throw new BadRequestException(
         `"${nextStatus}" can't be set directly — it's driven by the delivery workflow ` +
           `(see the /delivery endpoints), not the general status endpoint.`,
       );
     }
+
+    const order = await this.findOne(id);
+    const restaurant = await this.restaurantsService.findOne(order.restaurantId);
+    const isRestaurantOwner = restaurant.ownerId === userId;
+    const isCustomer = order.customerId === userId;
+
+    if (nextStatus === OrderStatus.CANCELLED) {
+      if (!isCustomer && !isRestaurantOwner) {
+        throw new ForbiddenException('You do not have access to this order');
+      }
+    } else if (!isRestaurantOwner) {
+      throw new ForbiddenException("Only the restaurant can update this order's status");
+    }
+
     return this.transitionTo(id, nextStatus);
   }
 
@@ -132,6 +172,13 @@ export class OrdersService {
 
   markDelivered(id: string): Promise<Order> {
     return this.transitionTo(id, OrderStatus.DELIVERED);
+  }
+
+  private async assertCanView(order: Order, userId: string): Promise<void> {
+    if (order.customerId === userId) return;
+    const restaurant = await this.restaurantsService.findOne(order.restaurantId);
+    if (restaurant.ownerId === userId) return;
+    throw new ForbiddenException('You do not have access to this order');
   }
 
   private async transitionTo(id: string, nextStatus: OrderStatus): Promise<Order> {

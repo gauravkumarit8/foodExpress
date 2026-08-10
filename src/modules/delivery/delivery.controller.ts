@@ -23,18 +23,23 @@ export class DeliveryController {
     return this.deliveryService.findAvailableRiders();
   }
 
+  @Get('mine')
+  findMyAssignments(@Req() req: any) {
+    return this.deliveryService.findMyAssignments(req.user.userId);
+  }
+
   @Post('assign')
   assign(@Body('orderId') orderId: string, @Body('riderId') riderId: string) {
     return this.deliveryService.assign(orderId, riderId);
   }
 
   @Patch(':orderId/picked-up')
-  pickedUp(@Param('orderId') orderId: string) {
-    return this.deliveryService.markPickedUp(orderId);
+  pickedUp(@Req() req: any, @Param('orderId') orderId: string) {
+    return this.deliveryService.markPickedUp(orderId, req.user.userId);
   }
 
   @Patch(':orderId/delivered')
-  delivered(@Param('orderId') orderId: string) {
-    return this.deliveryService.markDelivered(orderId);
+  delivered(@Req() req: any, @Param('orderId') orderId: string) {
+    return this.deliveryService.markDelivered(orderId, req.user.userId);
   }
 }

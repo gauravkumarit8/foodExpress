@@ -3,6 +3,7 @@ import { RestaurantsService } from './restaurants.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
+import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { JwtAuthGuard } from '../users/auth/jwt-auth.guard';
 
 @Controller('restaurants')
@@ -12,6 +13,15 @@ export class RestaurantsController {
   @Get()
   findAll() {
     return this.restaurantsService.findAll();
+  }
+
+  // IMPORTANT: this must be registered before @Get(':id') below — routes are
+  // matched in registration order, so 'mine' would otherwise be swallowed by
+  // the :id pattern and treated as a lookup for a restaurant named "mine".
+  @UseGuards(JwtAuthGuard)
+  @Get('mine')
+  findMine(@Req() req: any) {
+    return this.restaurantsService.findMine(req.user.userId);
   }
 
   @Get(':id')
@@ -28,6 +38,12 @@ export class RestaurantsController {
   @Post()
   create(@Req() req: any, @Body() dto: CreateRestaurantDto) {
     return this.restaurantsService.create(req.user.userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateRestaurantDto) {
+    return this.restaurantsService.update(id, req.user.userId, dto);
   }
 
   @UseGuards(JwtAuthGuard)

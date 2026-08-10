@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/configure-app';
 
 /**
  * Walks the entire core user journey through real HTTP calls against a real
@@ -31,10 +32,7 @@ describe('FoodExpress API (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1');
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
-    );
+    configureApp(app); // same function main.ts uses — no more drift between test and prod config
     await app.init();
   });
 
@@ -84,6 +82,33 @@ describe('FoodExpress API (e2e)', () => {
     await request(app.getHttpServer()).get('/api/v1/auth/me').expect(401);
   });
 
+  it('never returns the password hash from GET /users/:id', async () => {
+    const me = await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/users/${me.body.userId}`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+
+    expect(res.body.passwordHash).toBeUndefined();
+    expect(res.body.email).toBeDefined(); // sanity check: this isn't just an empty response
+  });
+
+  it('rejects one user viewing another user\'s profile entirely', async () => {
+    const me = await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/users/${me.body.userId}`)
+      .set('Authorization', `Bearer ${ownerToken}`) // a different account
+      .expect(403);
+  });
+
   it('creates a restaurant owned by the owner account', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/restaurants')
@@ -117,6 +142,44 @@ describe('FoodExpress API (e2e)', () => {
       .send({ name: 'E2E Test Dish', price: 100, category: 'Test' })
       .expect(201);
     menuItemId = res.body.id;
+  });
+
+  it('finds the restaurant via GET /restaurants/mine (the actual fix — and proves "mine" is not swallowed by the :id route)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/restaurants/mine')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    expect(res.body.some((r: any) => r.id === restaurantId)).toBe(true);
+  });
+
+  it('returns an empty list for GET /restaurants/mine when the caller owns nothing', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/restaurants/mine')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('lets the owner update and close the restaurant, and rejects a non-owner doing the same', async () => {
+    const updated = await request(app.getHttpServer())
+      .patch(`/api/v1/restaurants/${restaurantId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ isOpen: false })
+      .expect(200);
+    expect(updated.body.isOpen).toBe(false);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/restaurants/${restaurantId}`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ isOpen: true })
+      .expect(403);
+
+    // reopen it — later tests need to place an order against this restaurant
+    await request(app.getHttpServer())
+      .patch(`/api/v1/restaurants/${restaurantId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ isOpen: true })
+      .expect(200);
   });
 
   it('rejects a different account editing this restaurant (ownership check)', async () => {
@@ -171,6 +234,21 @@ describe('FoodExpress API (e2e)', () => {
     expect(Number(res.body.subtotal)).toBe(200); // 100 (real menu price) * 2, not attacker-controlled
   });
 
+  it('lets the restaurant see its own incoming orders (the actual fix — there was no way to do this before)', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/restaurants/${restaurantId}/orders`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    expect(res.body.some((o: any) => o.id === orderId)).toBe(true);
+  });
+
+  it('rejects a non-owner viewing the restaurant\'s order list', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/restaurants/${restaurantId}/orders`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(403);
+  });
+
   it('rejects rating an order before it is delivered', async () => {
     await request(app.getHttpServer())
       .post(`/api/v1/orders/${orderId}/rating`)
@@ -183,10 +261,34 @@ describe('FoodExpress API (e2e)', () => {
     for (const status of ['accepted', 'preparing', 'ready']) {
       await request(app.getHttpServer())
         .patch(`/api/v1/orders/${orderId}/status`)
-        .set('Authorization', `Bearer ${customerToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({ status })
         .expect(200);
     }
+  });
+
+  it('rejects the customer trying to advance the order themselves', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/v1/orders/${orderId}/status`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ status: 'accepted' }) // irrelevant which status — customer can't drive this at all
+      .expect(403);
+  });
+
+  it('rejects a stranger viewing this order entirely', async () => {
+    const strangerRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'Stranger',
+        email: `e2e-stranger-${suffix}@example.com`,
+        password: 'password123',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/orders/${orderId}`)
+      .set('Authorization', `Bearer ${strangerRes.body.accessToken}`)
+      .expect(403);
   });
 
   it('rejects setting picked_up directly on the general status endpoint', async () => {
@@ -228,6 +330,14 @@ describe('FoodExpress API (e2e)', () => {
       .expect(409);
   });
 
+  it('lets the rider see their own assignment via GET /delivery/mine (the actual fix)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/delivery/mine')
+      .set('Authorization', `Bearer ${riderToken}`)
+      .expect(200);
+    expect(res.body.some((a: any) => a.orderId === orderId)).toBe(true);
+  });
+
   it('picking up via the delivery endpoint advances the order status too', async () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/delivery/${orderId}/picked-up`)
@@ -257,7 +367,7 @@ describe('FoodExpress API (e2e)', () => {
   it('rejects an illegal transition once the order is delivered', async () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/orders/${orderId}/status`)
-      .set('Authorization', `Bearer ${customerToken}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
       .send({ status: 'accepted' })
       .expect(400);
   });

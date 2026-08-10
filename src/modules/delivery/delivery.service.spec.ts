@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { DeliveryService } from './delivery.service';
 import { Rider } from './entities/rider.entity';
 import { DeliveryAssignment } from './entities/delivery-assignment.entity';
@@ -90,24 +95,59 @@ describe('DeliveryService', () => {
   });
 
   describe('markPickedUp / markDelivered', () => {
+    const assignment = { id: 'a1', orderId: 'o1', riderId: 'rider-profile-1' };
+    const assignedRider = { id: 'rider-profile-1', userId: 'rider-user-1' };
+
     it('markPickedUp advances the order status before stamping the timestamp', async () => {
-      assignmentsRepo.findOne.mockResolvedValue({ id: 'a1', orderId: 'o1' });
-      await service.markPickedUp('o1');
+      assignmentsRepo.findOne.mockResolvedValue(assignment);
+      ridersRepo.findOne.mockResolvedValue(assignedRider);
+      await service.markPickedUp('o1', 'rider-user-1');
       expect(ordersService.markPickedUp).toHaveBeenCalledWith('o1');
       expect(assignmentsRepo.save).toHaveBeenCalled();
     });
 
     it('markPickedUp throws if no assignment exists yet', async () => {
       assignmentsRepo.findOne.mockResolvedValue(null);
-      await expect(service.markPickedUp('o1')).rejects.toThrow(NotFoundException);
+      await expect(service.markPickedUp('o1', 'rider-user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(ordersService.markPickedUp).not.toHaveBeenCalled();
+    });
+
+    it('rejects a rider who is not the one actually assigned to this delivery', async () => {
+      assignmentsRepo.findOne.mockResolvedValue(assignment);
+      ridersRepo.findOne.mockResolvedValue(assignedRider); // belongs to rider-user-1
+      await expect(service.markPickedUp('o1', 'some-other-rider')).rejects.toThrow(
+        ForbiddenException,
+      );
       expect(ordersService.markPickedUp).not.toHaveBeenCalled();
     });
 
     it('markDelivered propagates a state-machine violation instead of silently stamping the timestamp', async () => {
-      assignmentsRepo.findOne.mockResolvedValue({ id: 'a1', orderId: 'o1' });
+      assignmentsRepo.findOne.mockResolvedValue(assignment);
+      ridersRepo.findOne.mockResolvedValue(assignedRider);
       ordersService.markDelivered.mockRejectedValue(new BadRequestException('not picked up yet'));
-      await expect(service.markDelivered('o1')).rejects.toThrow(BadRequestException);
+      await expect(service.markDelivered('o1', 'rider-user-1')).rejects.toThrow(
+        BadRequestException,
+      );
       expect(assignmentsRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findMyAssignments (the actual fix — riders had no way to see what they were assigned)', () => {
+    it('returns assignments scoped to the calling rider', async () => {
+      ridersRepo.findOne.mockResolvedValue({ id: 'rider-profile-1', userId: 'rider-user-1' });
+      assignmentsRepo.find.mockResolvedValue([{ id: 'a1' }]);
+      const result = await service.findMyAssignments('rider-user-1');
+      expect(result).toHaveLength(1);
+      expect(assignmentsRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { riderId: 'rider-profile-1' } }),
+      );
+    });
+
+    it('throws if the account has no rider profile yet', async () => {
+      ridersRepo.findOne.mockResolvedValue(null);
+      await expect(service.findMyAssignments('not-a-rider')).rejects.toThrow(NotFoundException);
     });
   });
 });
