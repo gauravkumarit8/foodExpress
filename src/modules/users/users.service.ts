@@ -2,7 +2,7 @@ import { Injectable, ConflictException, ForbiddenException, NotFoundException } 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
-import { User } from './entities/user.entity';
+import { User, UserRole } from './entities/user.entity';
 import { RegisterDto } from './dto/register.dto';
 
 @Injectable()
@@ -24,7 +24,10 @@ export class UsersService {
       email: dto.email,
       phone: dto.phone,
       passwordHash,
-      role: dto.role,
+      // SelfRegisterableRole and UserRole share the same string values by
+      // design (SelfRegisterableRole is just UserRole minus ADMIN) — this
+      // cast is safe and is exactly what makes admin unreachable here.
+      role: dto.role as UserRole | undefined,
     });
     return this.usersRepository.save(user);
   }

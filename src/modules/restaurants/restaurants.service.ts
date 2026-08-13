@@ -7,6 +7,8 @@ import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
+import { BrowseRestaurantsDto } from './dto/browse-restaurants.dto';
+import { PaginatedResult, paginate } from '../../common/dto/pagination.dto';
 
 @Injectable()
 export class RestaurantsService {
@@ -25,10 +27,39 @@ export class RestaurantsService {
     return this.restaurantsRepository.save(restaurant);
   }
 
-  findAll(): Promise<Restaurant[]> {
-    // TODO: replace with a real geo-radius query (PostGIS ST_DWithin) once
-    // there are enough restaurants for distance filtering to matter.
-    return this.restaurantsRepository.find({ where: { isOpen: true } });
+  async findAll(query: BrowseRestaurantsDto): Promise<PaginatedResult<Restaurant>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const qb = this.restaurantsRepository
+      .createQueryBuilder('restaurant')
+      .where('restaurant.is_open = :isOpen', { isOpen: true });
+
+    if (query.lat !== undefined && query.lng !== undefined) {
+      // Haversine distance in km, using plain Postgres trig functions —
+      // no PostGIS extension needed for straight-line distance at this
+      // scale. Fine up to a city's worth of restaurants; if this table
+      // ever grows into the tens of thousands, a proper geospatial index
+      // (PostGIS + GiST) would outperform a full-table trig scan.
+      const distanceExpr = `(6371 * acos(
+        cos(radians(:lat)) * cos(radians(restaurant.latitude)) *
+        cos(radians(restaurant.longitude) - radians(:lng)) +
+        sin(radians(:lat)) * sin(radians(restaurant.latitude))
+      ))`;
+      const radiusKm = query.radiusKm ?? 5;
+
+      qb.addSelect(distanceExpr, 'distance_km')
+        .setParameters({ lat: query.lat, lng: query.lng })
+        .andWhere(`${distanceExpr} <= :radiusKm`, { radiusKm })
+        .orderBy('distance_km', 'ASC');
+    }
+
+    const [data, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return paginate(data, total, page, limit);
   }
 
   // Fix: previously an owner had no way to find their own restaurant's ID

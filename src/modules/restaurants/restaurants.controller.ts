@@ -1,18 +1,25 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RestaurantsService } from './restaurants.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
+import { BrowseRestaurantsDto } from './dto/browse-restaurants.dto';
 import { JwtAuthGuard } from '../users/auth/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../users/entities/user.entity';
 
+@ApiTags('restaurants')
+@ApiBearerAuth()
 @Controller('restaurants')
 export class RestaurantsController {
   constructor(private readonly restaurantsService: RestaurantsService) {}
 
   @Get()
-  findAll() {
-    return this.restaurantsService.findAll();
+  findAll(@Query() query: BrowseRestaurantsDto) {
+    return this.restaurantsService.findAll(query);
   }
 
   // IMPORTANT: this must be registered before @Get(':id') below — routes are
@@ -34,7 +41,8 @@ export class RestaurantsController {
     return this.restaurantsService.getMenu(id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.RESTAURANT_OWNER, UserRole.ADMIN)
   @Post()
   create(@Req() req: any, @Body() dto: CreateRestaurantDto) {
     return this.restaurantsService.create(req.user.userId, dto);

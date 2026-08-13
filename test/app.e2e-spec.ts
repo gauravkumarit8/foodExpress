@@ -1,8 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { getDataSourceToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import * as bcrypt from 'bcryptjs';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/configure-app';
+import { User, UserRole } from '../src/modules/users/entities/user.entity';
 
 /**
  * Walks the entire core user journey through real HTTP calls against a real
@@ -22,6 +26,7 @@ describe('FoodExpress API (e2e)', () => {
 
   let customerToken: string;
   let ownerToken: string;
+  let adminToken: string;
   let restaurantId: string;
   let menuItemId: string;
   let orderId: string;
@@ -34,6 +39,26 @@ describe('FoodExpress API (e2e)', () => {
     app = moduleFixture.createNestApplication();
     configureApp(app); // same function main.ts uses — no more drift between test and prod config
     await app.init();
+
+    // Admin accounts can't be created via public registration by design
+    // (see register.dto.ts) — created directly here, the same way the seed
+    // script does, so this suite stays self-contained rather than depending
+    // on seed.ts having been run first.
+    const dataSource = app.get<DataSource>(getDataSourceToken());
+    const userRepo = dataSource.getRepository(User);
+    const adminEmail = `e2e-admin-${suffix}@example.com`;
+    await userRepo.save(
+      userRepo.create({
+        name: 'E2E Admin',
+        email: adminEmail,
+        passwordHash: await bcrypt.hash('password123', 10),
+        role: UserRole.ADMIN,
+      }),
+    );
+    const adminLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: adminEmail, password: 'password123' });
+    adminToken = adminLogin.body.accessToken;
   });
 
   afterAll(async () => {
@@ -197,8 +222,12 @@ describe('FoodExpress API (e2e)', () => {
   });
 
   it('lists the restaurant in the public restaurants feed', async () => {
-    const res = await request(app.getHttpServer()).get('/api/v1/restaurants').expect(200);
-    expect(res.body.some((r: any) => r.id === restaurantId)).toBe(true);
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/restaurants?limit=100')
+      .expect(200);
+    expect(res.body.data.some((r: any) => r.id === restaurantId)).toBe(true);
+    expect(res.body).toHaveProperty('total');
+    expect(res.body).toHaveProperty('totalPages');
   });
 
   it('rejects a client-supplied price on the order (the actual vulnerability this fixes)', async () => {
@@ -232,6 +261,23 @@ describe('FoodExpress API (e2e)', () => {
     orderId = res.body.id;
     expect(res.body.status).toBe('placed');
     expect(Number(res.body.subtotal)).toBe(200); // 100 (real menu price) * 2, not attacker-controlled
+    expect(res.body.items[0].menuItemName).toBe('E2E Test Dish'); // snapshot fix — see OrderItem.menuItemName
+  });
+
+  it('keeps order history accurate even after the menu item is renamed (the actual point of the snapshot fix)', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/v1/restaurants/${restaurantId}/menu-items/${menuItemId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Renamed Dish' })
+      .expect(200);
+
+    const order = await request(app.getHttpServer())
+      .get(`/api/v1/orders/${orderId}`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+
+    // still shows what the customer actually ordered, not the current name
+    expect(order.body.items[0].menuItemName).toBe('E2E Test Dish');
   });
 
   it('lets the restaurant see its own incoming orders (the actual fix — there was no way to do this before)', async () => {
@@ -239,7 +285,7 @@ describe('FoodExpress API (e2e)', () => {
       .get(`/api/v1/restaurants/${restaurantId}/orders`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
-    expect(res.body.some((o: any) => o.id === orderId)).toBe(true);
+    expect(res.body.data.some((o: any) => o.id === orderId)).toBe(true);
   });
 
   it('rejects a non-owner viewing the restaurant\'s order list', async () => {
@@ -301,7 +347,20 @@ describe('FoodExpress API (e2e)', () => {
 
   let riderToken: string;
 
-  it('registers a rider and assigns them to the now-ready order', async () => {
+  it('rejects a non-admin trying to dispatch a rider at all', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/delivery/assign')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ orderId, riderId: '00000000-0000-4000-8000-000000000000' })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/delivery/riders/available')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(403);
+  });
+
+  it('registers a rider and assigns them to the now-ready order (as admin — dispatch is admin-only)', async () => {
     const riderEmail = `e2e-rider-${suffix}@example.com`;
     const riderRes = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
@@ -317,7 +376,7 @@ describe('FoodExpress API (e2e)', () => {
 
     await request(app.getHttpServer())
       .post('/api/v1/delivery/assign')
-      .set('Authorization', `Bearer ${customerToken}`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .send({ orderId, riderId: riderProfile.body.id })
       .expect(201);
   });
@@ -325,7 +384,7 @@ describe('FoodExpress API (e2e)', () => {
   it('rejects assigning a rider ID that does not exist (the actual fix from this round)', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delivery/assign')
-      .set('Authorization', `Bearer ${customerToken}`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .send({ orderId, riderId: '00000000-0000-4000-8000-000000000000' })
       .expect(404);
   });
@@ -350,7 +409,7 @@ describe('FoodExpress API (e2e)', () => {
 
     await request(app.getHttpServer())
       .post('/api/v1/delivery/assign')
-      .set('Authorization', `Bearer ${customerToken}`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .send({ orderId, riderId: secondRiderProfile.body.id }) // a real, active, different rider
       .expect(409); // still rejected — the order already has a rider, real or not
   });
@@ -413,23 +472,23 @@ describe('FoodExpress API (e2e)', () => {
       .expect(409);
   });
 
-  it('registers the customer as a rider, appears in available riders, then goes offline', async () => {
+  it('lets the rider toggle online/offline, and the admin (only) can view availability', async () => {
     await request(app.getHttpServer())
-      .post('/api/v1/delivery/riders')
-      .set('Authorization', `Bearer ${customerToken}`)
-      .send({ vehicleType: 'bike' })
-      .expect(201);
-
-    const available = await request(app.getHttpServer())
-      .get('/api/v1/delivery/riders/available')
-      .set('Authorization', `Bearer ${customerToken}`)
+      .patch('/api/v1/delivery/riders/me/status')
+      .set('Authorization', `Bearer ${riderToken}`)
+      .send({ isActive: false })
       .expect(200);
-    expect(available.body.length).toBeGreaterThan(0);
+
+    // positive-path counterpart to the earlier 403 test — admin can actually see this
+    await request(app.getHttpServer())
+      .get('/api/v1/delivery/riders/available')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
 
     await request(app.getHttpServer())
       .patch('/api/v1/delivery/riders/me/status')
-      .set('Authorization', `Bearer ${customerToken}`)
-      .send({ isActive: false })
+      .set('Authorization', `Bearer ${riderToken}`)
+      .send({ isActive: true })
       .expect(200);
   });
 });

@@ -16,6 +16,7 @@ const createMockRepo = () => ({
   create: jest.fn((x) => x),
   save: jest.fn((x) => Promise.resolve({ id: 'generated-id', ...x })),
   find: jest.fn(),
+  findAndCount: jest.fn(),
   findOne: jest.fn(),
 });
 
@@ -100,6 +101,21 @@ describe('OrdersService', () => {
       } as any);
 
       expect(result.subtotal).toBe(270); // 90 * 3, from the DB, not the client
+    });
+
+    it('snapshots the item name at order time (the actual fix — order history should not silently change if a menu item is later renamed)', async () => {
+      restaurantsService.getMenuItemsByIds.mockResolvedValue([menuItem]);
+      ordersRepo.create = jest.fn((x) => x);
+
+      const result: any = await service.create('cust-1', {
+        restaurantId: 'r1',
+        items: [{ menuItemId: 'item-1', quantity: 1 }],
+        deliveryAddress: 'Test St',
+        deliveryLat: 1,
+        deliveryLng: 1,
+      } as any);
+
+      expect(result.items[0].menuItemName).toBe('Masala Dosa');
     });
 
     it('rejects an order for a menu item that does not exist', async () => {
@@ -274,14 +290,15 @@ describe('OrdersService', () => {
 
     it('returns orders for the restaurant when called by its actual owner', async () => {
       restaurantsService.findOne.mockResolvedValue(restaurant);
-      ordersRepo.find.mockResolvedValue([{ id: 'o1' }, { id: 'o2' }]);
-      const result = await service.findForRestaurant('r1', 'owner-1');
-      expect(result).toHaveLength(2);
+      ordersRepo.findAndCount.mockResolvedValue([[{ id: 'o1' }, { id: 'o2' }], 2]);
+      const result = await service.findForRestaurant('r1', 'owner-1', {});
+      expect(result.data).toHaveLength(2);
+      expect(result.total).toBe(2);
     });
 
     it('rejects anyone who is not the restaurant owner', async () => {
       restaurantsService.findOne.mockResolvedValue(restaurant);
-      await expect(service.findForRestaurant('r1', 'someone-else')).rejects.toThrow(
+      await expect(service.findForRestaurant('r1', 'someone-else', {})).rejects.toThrow(
         ForbiddenException,
       );
     });

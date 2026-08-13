@@ -27,10 +27,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
         ? exception.getResponse()
         : 'Internal server error';
 
-    this.logger.error(
-      `${request.method} ${request.url} -> ${status}`,
-      exception instanceof Error ? exception.stack : undefined,
-    );
+    // Fix: every rejected request used to log at ERROR severity, including
+    // completely normal ones (wrong password, 403, 409 duplicate). That
+    // buries the thing ERROR should mean — a 500, a DB failure — in noise.
+    // 4xx is a client mistake, not an application problem; only 5xx is.
+    const logMessage = `${request.method} ${request.url} -> ${status}`;
+    const stack = exception instanceof Error ? exception.stack : undefined;
+    if (status >= 500) {
+      this.logger.error(logMessage, stack);
+    } else {
+      this.logger.warn(logMessage);
+    }
 
     response.status(status).json({
       statusCode: status,

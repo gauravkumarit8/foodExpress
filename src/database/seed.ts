@@ -119,6 +119,21 @@ async function seed() {
     console.log('Created owner account: owner@foodexpress.test / password123');
   }
 
+  // Public registration can no longer create admin accounts (see
+  // register.dto.ts) — this is now the only way to get one for local dev.
+  const admin = await userRepo.findOne({ where: { email: 'admin@foodexpress.test' } });
+  if (!admin) {
+    await userRepo.save(
+      userRepo.create({
+        name: 'Demo Admin',
+        email: 'admin@foodexpress.test',
+        passwordHash: await bcrypt.hash('password123', 10),
+        role: UserRole.ADMIN,
+      }),
+    );
+    console.log('Created admin account: admin@foodexpress.test / password123');
+  }
+
   for (const r of sampleRestaurants) {
     let restaurant = await restaurantRepo.findOne({ where: { name: r.name } });
     if (restaurant) {

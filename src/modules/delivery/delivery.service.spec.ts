@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import {
   ConflictException,
   NotFoundException,
@@ -34,12 +34,22 @@ describe('DeliveryService', () => {
       markDelivered: jest.fn(),
     };
 
+    // Fake transaction: just runs the callback with a manager whose
+    // getRepository(DeliveryAssignment) returns the same mocked repo — good
+    // enough to unit test the orchestration logic without a real DB.
+    const mockDataSource = {
+      transaction: jest.fn(async (cb: any) =>
+        cb({ getRepository: () => assignmentsRepo }),
+      ),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DeliveryService,
         { provide: getRepositoryToken(Rider), useValue: ridersRepo },
         { provide: getRepositoryToken(DeliveryAssignment), useValue: assignmentsRepo },
         { provide: OrdersService, useValue: ordersService },
+        { provide: getDataSourceToken(), useValue: mockDataSource },
       ],
     }).compile();
 
@@ -116,7 +126,7 @@ describe('DeliveryService', () => {
       assignmentsRepo.findOne.mockResolvedValue(assignment);
       ridersRepo.findOne.mockResolvedValue(assignedRider);
       await service.markPickedUp('o1', 'rider-user-1');
-      expect(ordersService.markPickedUp).toHaveBeenCalledWith('o1');
+      expect(ordersService.markPickedUp).toHaveBeenCalledWith('o1', expect.anything());
       expect(assignmentsRepo.save).toHaveBeenCalled();
     });
 

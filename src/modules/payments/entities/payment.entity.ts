@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import { decimalTransformer } from '../../../common/transformers/decimal.transformer';
 
 export enum PaymentStatus {
   PENDING = 'pending',
@@ -15,7 +16,7 @@ export class Payment {
   @Column({ name: 'order_id', unique: true })
   orderId: string;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 10, scale: 2, transformer: decimalTransformer })
   amount: number;
 
   @Column({ default: 'INR' })

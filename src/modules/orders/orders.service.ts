@@ -6,13 +6,14 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { Order, OrderStatus } from './entities/order.entity';
 import { OrderStatusHistory } from './entities/order-status-history.entity';
 import { Rating } from './entities/rating.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateRatingDto } from './dto/create-rating.dto';
 import { RestaurantsService } from '../restaurants/restaurants.service';
+import { PaginatedResult, paginate, PaginationDto } from '../../common/dto/pagination.dto';
 
 // The state machine from the architecture doc, enforced in code rather than
 // left as a free-text status column. No transition outside this map is legal.
@@ -88,6 +89,7 @@ export class OrdersService {
       subtotal += realPrice * requested.quantity;
       return {
         menuItemId: menuItem.id,
+        menuItemName: menuItem.name, // snapshot — see the comment on OrderItem.menuItemName
         quantity: requested.quantity,
         unitPrice: realPrice,
       };
@@ -128,22 +130,39 @@ export class OrdersService {
     return order;
   }
 
-  findForCustomer(customerId: string): Promise<Order[]> {
-    return this.ordersRepository.find({ where: { customerId }, order: { placedAt: 'DESC' } });
+  async findForCustomer(customerId: string, pagination: PaginationDto): Promise<PaginatedResult<Order>> {
+    const page = pagination.page ?? 1;
+    const limit = pagination.limit ?? 20;
+    const [data, total] = await this.ordersRepository.findAndCount({
+      where: { customerId },
+      order: { placedAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return paginate(data, total, page, limit);
   }
 
   // Fix: there was no way for a restaurant to see its own incoming orders
   // at all — a genuine blocker for a restaurant dashboard, not just a
   // hardening gap.
-  async findForRestaurant(restaurantId: string, ownerId: string): Promise<Order[]> {
+  async findForRestaurant(
+    restaurantId: string,
+    ownerId: string,
+    pagination: PaginationDto,
+  ): Promise<PaginatedResult<Order>> {
     const restaurant = await this.restaurantsService.findOne(restaurantId);
     if (restaurant.ownerId !== ownerId) {
       throw new ForbiddenException('You do not own this restaurant');
     }
-    return this.ordersRepository.find({
+    const page = pagination.page ?? 1;
+    const limit = pagination.limit ?? 20;
+    const [data, total] = await this.ordersRepository.findAndCount({
       where: { restaurantId },
       order: { placedAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    return paginate(data, total, page, limit);
   }
 
   // Fix: previously any authenticated user could advance or cancel any
@@ -176,12 +195,17 @@ export class OrdersService {
   // Called by DeliveryService, not exposed on a public route directly — this
   // is what actually keeps the order's status and the delivery assignment's
   // timestamps in sync instead of two independently-mutable tracks.
-  markPickedUp(id: string): Promise<Order> {
-    return this.transitionTo(id, OrderStatus.PICKED_UP);
+  // Accepts an optional transactional EntityManager so DeliveryService can
+  // wrap this order update and its own assignment-timestamp update in one
+  // atomic transaction (see DeliveryService.markPickedUp/markDelivered) —
+  // otherwise there's a real window where one save succeeds and the other
+  // fails, leaving the two records disagreeing.
+  markPickedUp(id: string, manager?: EntityManager): Promise<Order> {
+    return this.transitionTo(id, OrderStatus.PICKED_UP, manager);
   }
 
-  markDelivered(id: string): Promise<Order> {
-    return this.transitionTo(id, OrderStatus.DELIVERED);
+  markDelivered(id: string, manager?: EntityManager): Promise<Order> {
+    return this.transitionTo(id, OrderStatus.DELIVERED, manager);
   }
 
   private async assertCanView(order: Order, userId: string): Promise<void> {
@@ -191,8 +215,18 @@ export class OrdersService {
     throw new ForbiddenException('You do not have access to this order');
   }
 
-  private async transitionTo(id: string, nextStatus: OrderStatus): Promise<Order> {
-    const order = await this.findOne(id);
+  private async transitionTo(
+    id: string,
+    nextStatus: OrderStatus,
+    manager?: EntityManager,
+  ): Promise<Order> {
+    const ordersRepo = manager ? manager.getRepository(Order) : this.ordersRepository;
+
+    const order = await ordersRepo.findOne({ where: { id }, relations: ['items'] });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
     const allowed = ALLOWED_TRANSITIONS[order.status] ?? [];
     if (!allowed.includes(nextStatus)) {
       throw new BadRequestException(
@@ -200,8 +234,8 @@ export class OrdersService {
       );
     }
     order.status = nextStatus;
-    const saved = await this.ordersRepository.save(order);
-    await this.logStatus(id, nextStatus);
+    const saved = await ordersRepo.save(order);
+    await this.logStatus(id, nextStatus, manager);
     return saved;
   }
 
@@ -230,8 +264,9 @@ export class OrdersService {
     return this.ratingsRepository.save(rating);
   }
 
-  private async logStatus(orderId: string, status: OrderStatus) {
-    const entry = this.historyRepository.create({ orderId, status });
-    await this.historyRepository.save(entry);
+  private async logStatus(orderId: string, status: OrderStatus, manager?: EntityManager) {
+    const historyRepo = manager ? manager.getRepository(OrderStatusHistory) : this.historyRepository;
+    const entry = historyRepo.create({ orderId, status });
+    await historyRepo.save(entry);
   }
 }

@@ -7,6 +7,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { OrderItem } from './order-item.entity';
+import { decimalTransformer } from '../../../common/transformers/decimal.transformer';
 
 export enum OrderStatus {
   PLACED = 'placed',
@@ -32,13 +33,13 @@ export class Order {
   @Column({ type: 'enum', enum: OrderStatus, default: OrderStatus.PLACED })
   status: OrderStatus;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 10, scale: 2, transformer: decimalTransformer })
   subtotal: number;
 
-  @Column('decimal', { name: 'delivery_fee', precision: 10, scale: 2 })
+  @Column('decimal', { name: 'delivery_fee', precision: 10, scale: 2, transformer: decimalTransformer })
   deliveryFee: number;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 10, scale: 2, transformer: decimalTransformer })
   total: number;
 
   @Column({ name: 'delivery_address' })

@@ -5,8 +5,8 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Rider } from './entities/rider.entity';
 import { DeliveryAssignment } from './entities/delivery-assignment.entity';
 import { CreateRiderDto } from './dto/create-rider.dto';
@@ -21,6 +21,8 @@ export class DeliveryService {
     @InjectRepository(DeliveryAssignment)
     private readonly assignmentsRepository: Repository<DeliveryAssignment>,
     private readonly ordersService: OrdersService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   findAvailableRiders(): Promise<Rider[]> {
@@ -95,23 +97,32 @@ export class DeliveryService {
     return this.assignmentsRepository.save(assignment);
   }
 
+  // Fix: previously the order-status update and the assignment-timestamp
+  // update were two separate saves with a real (if narrow) window where one
+  // could succeed and the other fail — order says "picked up", assignment
+  // still shows null. Now atomic: either both happen or neither does.
   async markPickedUp(orderId: string, requestingUserId: string): Promise<DeliveryAssignment> {
     const assignment = await this.findByOrder(orderId);
     await this.assertIsAssignedRider(assignment, requestingUserId);
-    // Drives the order's own status forward — this is the fix: the two
-    // records can no longer disagree, because this is the only path to
-    // OrderStatus.PICKED_UP.
-    await this.ordersService.markPickedUp(orderId);
-    assignment.pickedUpAt = new Date();
-    return this.assignmentsRepository.save(assignment);
+
+    return this.dataSource.transaction(async (manager) => {
+      await this.ordersService.markPickedUp(orderId, manager);
+      const assignmentsRepo = manager.getRepository(DeliveryAssignment);
+      assignment.pickedUpAt = new Date();
+      return assignmentsRepo.save(assignment);
+    });
   }
 
   async markDelivered(orderId: string, requestingUserId: string): Promise<DeliveryAssignment> {
     const assignment = await this.findByOrder(orderId);
     await this.assertIsAssignedRider(assignment, requestingUserId);
-    await this.ordersService.markDelivered(orderId);
-    assignment.deliveredAt = new Date();
-    return this.assignmentsRepository.save(assignment);
+
+    return this.dataSource.transaction(async (manager) => {
+      await this.ordersService.markDelivered(orderId, manager);
+      const assignmentsRepo = manager.getRepository(DeliveryAssignment);
+      assignment.deliveredAt = new Date();
+      return assignmentsRepo.save(assignment);
+    });
   }
 
   // Fix: previously any authenticated user could mark any delivery picked

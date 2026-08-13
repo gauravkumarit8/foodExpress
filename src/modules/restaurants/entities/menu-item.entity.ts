@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Restaurant } from './restaurant.entity';
+import { decimalTransformer } from '../../../common/transformers/decimal.transformer';
 
 @Entity('menu_items')
 export class MenuItem {
@@ -22,7 +23,7 @@ export class MenuItem {
   @Column({ nullable: true })
   category: string;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 10, scale: 2, transformer: decimalTransformer })
   price: number;
 
   @Column({ name: 'is_available', default: true })
