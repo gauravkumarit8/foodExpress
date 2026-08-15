@@ -92,6 +92,7 @@ export class OrdersService {
         menuItemName: menuItem.name, // snapshot — see the comment on OrderItem.menuItemName
         quantity: requested.quantity,
         unitPrice: realPrice,
+        notes: requested.notes,
       };
     });
 
@@ -106,6 +107,7 @@ export class OrdersService {
       deliveryAddress: dto.deliveryAddress,
       deliveryLat: dto.deliveryLat,
       deliveryLng: dto.deliveryLng,
+      deliveryInstructions: dto.deliveryInstructions,
       items: orderItems,
     } as Partial<Order>);
     const saved = await this.ordersRepository.save(order);
@@ -130,7 +132,10 @@ export class OrdersService {
     return order;
   }
 
-  async findForCustomer(customerId: string, pagination: PaginationDto): Promise<PaginatedResult<Order>> {
+  async findForCustomer(
+    customerId: string,
+    pagination: PaginationDto,
+  ): Promise<PaginatedResult<Order>> {
     const page = pagination.page ?? 1;
     const limit = pagination.limit ?? 20;
     const [data, total] = await this.ordersRepository.findAndCount({

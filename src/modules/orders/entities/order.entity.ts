@@ -51,6 +51,12 @@ export class Order {
   @Column('double precision', { name: 'delivery_lng' })
   deliveryLng: number;
 
+  // Fix: standard food-delivery feature ("leave at door", "ring the bell")
+  // that had nowhere to live before — nullable/optional, not every order
+  // needs one.
+  @Column({ name: 'delivery_instructions', nullable: true })
+  deliveryInstructions: string;
+
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];
 

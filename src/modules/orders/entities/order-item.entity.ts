@@ -20,10 +20,9 @@ export class OrderItem {
   // Snapshot of the item's name at order time — deliberately NOT a live
   // join to MenuItem. Without this, renaming (or eventually deleting) a
   // menu item would retroactively change how every past order displays.
-  // Nullable at the DB level: added after rows already existed in this
-  // table, and Postgres can't add a NOT NULL column without a default to a
-  // non-empty table. OrdersService.create() always sets this for new rows —
-  // only pre-existing rows (from before this fix) will ever be null.
+  // Nullable at the DB level: safe to add to a table that may already have
+  // rows (Postgres can't add a NOT NULL column without a default to a
+  // non-empty table). OrdersService.create() always sets this for new rows.
   @Column({ name: 'menu_item_name', nullable: true })
   menuItemName: string;
 
@@ -33,6 +32,8 @@ export class OrderItem {
   @Column('decimal', { name: 'unit_price', precision: 10, scale: 2, transformer: decimalTransformer })
   unitPrice: number;
 
+  // Per-item special instructions (e.g. "no onions"). This column already
+  // existed but the API never exposed it — see CreateOrderDto.
   @Column({ nullable: true })
   notes: string;
 }

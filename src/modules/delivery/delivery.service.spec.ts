@@ -38,9 +38,7 @@ describe('DeliveryService', () => {
     // getRepository(DeliveryAssignment) returns the same mocked repo — good
     // enough to unit test the orchestration logic without a real DB.
     const mockDataSource = {
-      transaction: jest.fn(async (cb: any) =>
-        cb({ getRepository: () => assignmentsRepo }),
-      ),
+      transaction: jest.fn(async (cb: any) => cb({ getRepository: () => assignmentsRepo })),
     };
 
     const module: TestingModule = await Test.createTestingModule({

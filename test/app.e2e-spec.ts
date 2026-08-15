@@ -11,7 +11,7 @@ import { User, UserRole } from '../src/modules/users/entities/user.entity';
 /**
  * Walks the entire core user journey through real HTTP calls against a real
  * database: register -> create restaurant -> add menu item -> place order ->
- * walk the status state machine -> rate it -> register as a rider.
+ * walk the status state machine -> dispatch a rider -> deliver -> rate it.
  * This is the automated version of everything that's been curl-tested by
  * hand throughout development.
  */
@@ -27,6 +27,7 @@ describe('FoodExpress API (e2e)', () => {
   let customerToken: string;
   let ownerToken: string;
   let adminToken: string;
+  let riderToken: string;
   let restaurantId: string;
   let menuItemId: string;
   let orderId: string;
@@ -89,6 +90,18 @@ describe('FoodExpress API (e2e)', () => {
     ownerToken = ownerRes.body.accessToken;
   });
 
+  it('rejects self-registering as admin — the actual RBAC fix', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'Sneaky',
+        email: `e2e-sneaky-${suffix}@example.com`,
+        password: 'password123',
+        role: 'admin',
+      })
+      .expect(400);
+  });
+
   it('rejects duplicate email registration', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/auth/register')
@@ -122,7 +135,7 @@ describe('FoodExpress API (e2e)', () => {
     expect(res.body.email).toBeDefined(); // sanity check: this isn't just an empty response
   });
 
-  it('rejects one user viewing another user\'s profile entirely', async () => {
+  it("rejects one user viewing another user's profile entirely", async () => {
     const me = await request(app.getHttpServer())
       .get('/api/v1/auth/me')
       .set('Authorization', `Bearer ${customerToken}`)
@@ -134,19 +147,34 @@ describe('FoodExpress API (e2e)', () => {
       .expect(403);
   });
 
-  it('creates a restaurant owned by the owner account', async () => {
+  it('rejects a plain customer creating a restaurant (RBAC)', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/restaurants')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({
+        name: 'Should Not Exist',
+        cityId: '00000000-0000-4000-8000-000000000001',
+        latitude: 12.9,
+        longitude: 77.6,
+      })
+      .expect(403);
+  });
+
+  it('creates a restaurant owned by the owner account, with a cover photo', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/restaurants')
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({
         name: `E2E Kitchen ${suffix}`,
         cityId: '00000000-0000-4000-8000-000000000001',
-        latitude: 12.9716,
-        longitude: 77.5946,
+        latitude: 12.9352,
+        longitude: 77.6245,
+        imageUrl: 'https://example.com/kitchen-cover.jpg',
       })
       .expect(201);
     restaurantId = res.body.id;
     expect(restaurantId).toBeDefined();
+    expect(res.body.imageUrl).toBe('https://example.com/kitchen-cover.jpg');
   });
 
   it('sets the owner from the JWT, not from the request body', async () => {
@@ -160,16 +188,22 @@ describe('FoodExpress API (e2e)', () => {
     expect(res.body.ownerId).toBe(me.body.userId);
   });
 
-  it('adds a menu item to the restaurant', async () => {
+  it('adds a menu item to the restaurant, with a photo', async () => {
     const res = await request(app.getHttpServer())
       .post(`/api/v1/restaurants/${restaurantId}/menu-items`)
       .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ name: 'E2E Test Dish', price: 100, category: 'Test' })
+      .send({
+        name: 'E2E Test Dish',
+        price: 100,
+        category: 'Test',
+        imageUrl: 'https://example.com/dish.jpg',
+      })
       .expect(201);
     menuItemId = res.body.id;
+    expect(res.body.imageUrl).toBe('https://example.com/dish.jpg');
   });
 
-  it('finds the restaurant via GET /restaurants/mine (the actual fix — and proves "mine" is not swallowed by the :id route)', async () => {
+  it('finds the restaurant via GET /restaurants/mine (and proves "mine" is not swallowed by the :id route)', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/restaurants/mine')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -221,13 +255,29 @@ describe('FoodExpress API (e2e)', () => {
       .expect(403);
   });
 
-  it('lists the restaurant in the public restaurants feed', async () => {
+  it('lists the restaurant in the public restaurants feed (paginated envelope)', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/restaurants?limit=100')
       .expect(200);
     expect(res.body.data.some((r: any) => r.id === restaurantId)).toBe(true);
     expect(res.body).toHaveProperty('total');
     expect(res.body).toHaveProperty('totalPages');
+  });
+
+  it('filters restaurants by real geo-radius distance', async () => {
+    // Query from right on top of the restaurant's own coordinates — a tiny
+    // radius should still find it (distance ~0km), proving this is a real
+    // distance calculation, not a no-op filter.
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/restaurants?lat=12.9352&lng=77.6245&radiusKm=1&limit=100')
+      .expect(200);
+    expect(res.body.data.some((r: any) => r.id === restaurantId)).toBe(true);
+
+    // The other side of the world should find nothing.
+    const farRes = await request(app.getHttpServer())
+      .get('/api/v1/restaurants?lat=-33.8688&lng=151.2093&radiusKm=1&limit=100') // Sydney
+      .expect(200);
+    expect(farRes.body.data.some((r: any) => r.id === restaurantId)).toBe(false);
   });
 
   it('rejects a client-supplied price on the order (the actual vulnerability this fixes)', async () => {
@@ -246,25 +296,28 @@ describe('FoodExpress API (e2e)', () => {
       .expect(400);
   });
 
-  it('places an order as the customer, priced from the real menu item', async () => {
+  it('places an order with per-item notes and delivery instructions, priced from the real menu item', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/orders')
       .set('Authorization', `Bearer ${customerToken}`)
       .send({
         restaurantId,
-        items: [{ menuItemId, quantity: 2 }],
+        items: [{ menuItemId, quantity: 2, notes: 'no onions please' }],
         deliveryAddress: '221B Test Street, Bengaluru',
         deliveryLat: 12.9352,
         deliveryLng: 77.6245,
+        deliveryInstructions: 'leave at the door',
       })
       .expect(201);
     orderId = res.body.id;
     expect(res.body.status).toBe('placed');
-    expect(Number(res.body.subtotal)).toBe(200); // 100 (real menu price) * 2, not attacker-controlled
-    expect(res.body.items[0].menuItemName).toBe('E2E Test Dish'); // snapshot fix — see OrderItem.menuItemName
+    expect(res.body.subtotal).toBe(200); // real number now (decimal transformer), 100 * 2
+    expect(res.body.items[0].menuItemName).toBe('E2E Test Dish'); // name snapshot
+    expect(res.body.items[0].notes).toBe('no onions please');
+    expect(res.body.deliveryInstructions).toBe('leave at the door');
   });
 
-  it('keeps order history accurate even after the menu item is renamed (the actual point of the snapshot fix)', async () => {
+  it('keeps order history accurate even after the menu item is renamed (the point of the name-snapshot fix)', async () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/restaurants/${restaurantId}/menu-items/${menuItemId}`)
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -280,7 +333,7 @@ describe('FoodExpress API (e2e)', () => {
     expect(order.body.items[0].menuItemName).toBe('E2E Test Dish');
   });
 
-  it('lets the restaurant see its own incoming orders (the actual fix — there was no way to do this before)', async () => {
+  it('lets the restaurant see its own incoming orders (paginated envelope)', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/v1/restaurants/${restaurantId}/orders`)
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -288,7 +341,7 @@ describe('FoodExpress API (e2e)', () => {
     expect(res.body.data.some((o: any) => o.id === orderId)).toBe(true);
   });
 
-  it('rejects a non-owner viewing the restaurant\'s order list', async () => {
+  it("rejects a non-owner viewing the restaurant's order list", async () => {
     await request(app.getHttpServer())
       .get(`/api/v1/restaurants/${restaurantId}/orders`)
       .set('Authorization', `Bearer ${customerToken}`)
@@ -317,7 +370,7 @@ describe('FoodExpress API (e2e)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/orders/${orderId}/status`)
       .set('Authorization', `Bearer ${customerToken}`)
-      .send({ status: 'accepted' }) // irrelevant which status — customer can't drive this at all
+      .send({ status: 'accepted' })
       .expect(403);
   });
 
@@ -345,9 +398,7 @@ describe('FoodExpress API (e2e)', () => {
       .expect(400);
   });
 
-  let riderToken: string;
-
-  it('rejects a non-admin trying to dispatch a rider at all', async () => {
+  it('rejects a non-admin trying to dispatch a rider at all (RBAC)', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delivery/assign')
       .set('Authorization', `Bearer ${customerToken}`)
@@ -360,7 +411,7 @@ describe('FoodExpress API (e2e)', () => {
       .expect(403);
   });
 
-  it('registers a rider and assigns them to the now-ready order (as admin — dispatch is admin-only)', async () => {
+  it('registers a rider and assigns them to the now-ready order (dispatch is admin-only)', async () => {
     const riderEmail = `e2e-rider-${suffix}@example.com`;
     const riderRes = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
@@ -381,12 +432,20 @@ describe('FoodExpress API (e2e)', () => {
       .expect(201);
   });
 
-  it('rejects assigning a rider ID that does not exist (the actual fix from this round)', async () => {
+  it('rejects assigning a rider ID that does not exist', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delivery/assign')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ orderId, riderId: '00000000-0000-4000-8000-000000000000' })
       .expect(404);
+  });
+
+  it('rejects a malformed (non-UUID) riderId with a clean 400, not a raw DB 500', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/delivery/assign')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ orderId, riderId: 'not-a-uuid-at-all' })
+      .expect(400);
   });
 
   it('rejects a duplicate assignment for the same order, even with a second real rider', async () => {
@@ -414,7 +473,7 @@ describe('FoodExpress API (e2e)', () => {
       .expect(409); // still rejected — the order already has a rider, real or not
   });
 
-  it('lets the rider see their own assignment via GET /delivery/mine (the actual fix)', async () => {
+  it('lets the rider see their own assignment via GET /delivery/mine', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/delivery/mine')
       .set('Authorization', `Bearer ${riderToken}`)
@@ -470,6 +529,15 @@ describe('FoodExpress API (e2e)', () => {
       .set('Authorization', `Bearer ${customerToken}`)
       .send({ restaurantRating: 3 })
       .expect(409);
+  });
+
+  it('gets a paginated view of the customer\'s order history', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/users/me/orders?limit=5&page=1')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+    expect(res.body.data.some((o: any) => o.id === orderId)).toBe(true);
+    expect(res.body.limit).toBe(5);
   });
 
   it('lets the rider toggle online/offline, and the admin (only) can view availability', async () => {

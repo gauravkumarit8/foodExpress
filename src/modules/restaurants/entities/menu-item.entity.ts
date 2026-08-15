@@ -28,4 +28,12 @@ export class MenuItem {
 
   @Column({ name: 'is_available', default: true })
   isAvailable: boolean;
+
+  // Fix: nowhere to put a dish photo. A food-delivery UI without any
+  // possible image is a real gap, not just polish — this is the field a
+  // frontend/admin flow populates (with a URL from wherever images are
+  // hosted; this project doesn't need to handle file upload itself for
+  // that to work).
+  @Column({ name: 'image_url', nullable: true })
+  imageUrl: string;
 }

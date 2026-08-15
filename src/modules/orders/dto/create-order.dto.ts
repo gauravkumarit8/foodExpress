@@ -4,8 +4,10 @@ import {
   IsArray,
   IsInt,
   IsNumber,
+  IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -17,6 +19,15 @@ class OrderItemDto {
   @IsInt()
   @Min(1)
   quantity: number;
+
+  // Fix: OrderItem.notes existed on the entity but was never reachable from
+  // the request — a standard "special instructions" field (e.g. "no onions")
+  // caused the whole order to be rejected (forbidNonWhitelisted) rather than
+  // just being ignored.
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  notes?: string;
 
   // Deliberately no unitPrice/price field here — the server prices every
   // item from the real menu record (see OrdersService.create). Trusting a
@@ -41,4 +52,11 @@ export class CreateOrderDto {
 
   @IsNumber()
   deliveryLng: number;
+
+  // Fix: standard "leave at door" / "ring the bell" instructions had no
+  // field to go into at all before this.
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  deliveryInstructions?: string;
 }

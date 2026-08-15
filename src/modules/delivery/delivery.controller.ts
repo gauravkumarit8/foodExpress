@@ -10,7 +10,6 @@ import { UserRole } from '../users/entities/user.entity';
 
 @ApiTags('delivery')
 @ApiBearerAuth()
-
 @Controller('delivery')
 @UseGuards(JwtAuthGuard)
 export class DeliveryController {

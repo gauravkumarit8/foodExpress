@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, IsUrl } from 'class-validator';
 
 export class UpdateRestaurantDto {
   @IsOptional()
@@ -20,6 +20,10 @@ export class UpdateRestaurantDto {
   @IsOptional()
   @IsNumber()
   avgPrepTimeMinutes?: number;
+
+  @IsOptional()
+  @IsUrl()
+  imageUrl?: string;
 
   // Deliberately no latitude/longitude/cityId here — relocating a restaurant
   // is a bigger operation than an inline edit; add a dedicated flow later

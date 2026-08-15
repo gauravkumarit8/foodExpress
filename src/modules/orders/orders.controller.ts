@@ -9,7 +9,6 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 
 @ApiTags('orders')
 @ApiBearerAuth()
-
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class OrdersController {

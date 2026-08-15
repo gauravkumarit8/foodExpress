@@ -103,7 +103,7 @@ describe('OrdersService', () => {
       expect(result.subtotal).toBe(270); // 90 * 3, from the DB, not the client
     });
 
-    it('snapshots the item name at order time (the actual fix — order history should not silently change if a menu item is later renamed)', async () => {
+    it('snapshots the item name at order time (order history should not silently change if a menu item is later renamed)', async () => {
       restaurantsService.getMenuItemsByIds.mockResolvedValue([menuItem]);
       ordersRepo.create = jest.fn((x) => x);
 
@@ -116,6 +116,23 @@ describe('OrdersService', () => {
       } as any);
 
       expect(result.items[0].menuItemName).toBe('Masala Dosa');
+    });
+
+    it('passes per-item notes and order-level delivery instructions through to the saved order', async () => {
+      restaurantsService.getMenuItemsByIds.mockResolvedValue([menuItem]);
+      ordersRepo.create = jest.fn((x) => x);
+
+      const result: any = await service.create('cust-1', {
+        restaurantId: 'r1',
+        items: [{ menuItemId: 'item-1', quantity: 1, notes: 'no onions' }],
+        deliveryAddress: 'Test St',
+        deliveryLat: 1,
+        deliveryLng: 1,
+        deliveryInstructions: 'leave at the door',
+      } as any);
+
+      expect(result.items[0].notes).toBe('no onions');
+      expect(result.deliveryInstructions).toBe('leave at the door');
     });
 
     it('rejects an order for a menu item that does not exist', async () => {

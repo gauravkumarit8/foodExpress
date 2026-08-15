@@ -40,6 +40,11 @@ export class Restaurant {
   @Column({ name: 'avg_prep_time_minutes', default: 20 })
   avgPrepTimeMinutes: number;
 
+  // Fix: no way to show a restaurant's cover photo/logo — every listing
+  // screen would need a placeholder forever without this.
+  @Column({ name: 'image_url', nullable: true })
+  imageUrl: string;
+
   @OneToMany(() => MenuItem, (item) => item.restaurant)
   menuItems: MenuItem[];
 

@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsUrl } from 'class-validator';
 
 export class CreateMenuItemDto {
   @IsString()
@@ -14,4 +14,8 @@ export class CreateMenuItemDto {
 
   @IsNumber()
   price: number | undefined;
+
+  @IsOptional()
+  @IsUrl()
+  imageUrl?: string;
 }

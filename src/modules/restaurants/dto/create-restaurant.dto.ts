@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsUUID } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsUUID, IsUrl } from 'class-validator';
 
 export class CreateRestaurantDto {
   @IsString()
@@ -20,4 +20,8 @@ export class CreateRestaurantDto {
 
   @IsNumber()
   longitude: number;
+
+  @IsOptional()
+  @IsUrl()
+  imageUrl?: string;
 }
