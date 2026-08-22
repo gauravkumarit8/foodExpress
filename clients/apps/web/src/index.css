@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid #2e5eaa;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* The signature "kitchen ticket" perforation — a torn receipt edge.
+     Circle fill color must match whatever sits directly behind it. */
+  .ticket-tear {
+    height: 16px;
+    background-color: #d9cfb8;
+    background-image: radial-gradient(circle at center, #ffffff 5px, transparent 5.5px);
+    background-size: 16px 16px;
+    background-position: 0 -8px;
+  }
+  .ticket-tear-paper {
+    height: 16px;
+    background-color: #d9cfb8;
+    background-image: radial-gradient(circle at center, #f5f1e6 5px, transparent 5.5px);
+    background-size: 16px 16px;
+    background-position: 0 -8px;
+  }
+}

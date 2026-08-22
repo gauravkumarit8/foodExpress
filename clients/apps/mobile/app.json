@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "FoodExpress",
+    "slug": "foodexpress-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "foodexpress",
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "FoodExpress uses your location to find nearby restaurants and deliver your order to the right place."
+      }
+    },
+    "android": {
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FoodExpress uses your location to find nearby restaurants and deliver your order to the right place."
+        }
+      ]
+    ]
+  }
+}
