@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { MenuItem, Restaurant } from '@foodexpress/api-client';
+import { useAuth } from './AuthContext';
 
 export interface CartLine {
   menuItem: MenuItem;
@@ -25,25 +26,37 @@ interface CartContextValue extends CartState {
   itemCount: number;
 }
 
-const STORAGE_KEY = 'foodexpress:cart';
+const STORAGE_PREFIX = 'foodexpress:cart:';
+const EMPTY_CART: CartState = { restaurantId: null, restaurantName: null, lines: [] };
 const CartContext = createContext<CartContextValue | undefined>(undefined);
 
-function loadInitialState(): CartState {
+function loadCartFor(scopeKey: string): CartState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_PREFIX + scopeKey);
     if (raw) return JSON.parse(raw) as CartState;
   } catch {
     // corrupted/blocked storage — start fresh
   }
-  return { restaurantId: null, restaurantName: null, lines: [] };
+  return EMPTY_CART;
 }
 
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<CartState>(loadInitialState);
+  // Carts are scoped per account ("guest" while logged out) so that logging
+  // out and into a different account never shows the previous account's
+  // cart — each identity gets its own localStorage slot.
+  const { user } = useAuth();
+  const scopeKey = user?.id ?? 'guest';
+  const [state, setState] = useState<CartState>(() => loadCartFor(scopeKey));
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    setState(loadCartFor(scopeKey));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_PREFIX + scopeKey, JSON.stringify(state));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, scopeKey]);
 
   function canAddFrom(restaurantId: string) {
     return state.restaurantId === null || state.restaurantId === restaurantId;

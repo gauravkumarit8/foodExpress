@@ -137,7 +137,13 @@ export interface Order {
   deliveryLat: number;
   deliveryLng: number;
   deliveryInstructions?: string;
-  items: OrderItem[];
+  /**
+   * Only populated by orders.get(id) and orders.updateStatus() — the
+   * backend's list endpoints (orders.mine, orders.forRestaurant) don't
+   * eager-load line items for performance, so this is undefined there.
+   * Always guard with `order.items ?? []` rather than assuming it's set.
+   */
+  items?: OrderItem[];
   placedAt: string;
   updatedAt: string;
 }

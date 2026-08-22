@@ -4,11 +4,17 @@ import { ApiError } from '@foodexpress/api-client';
 import { api } from '../../lib/api';
 import { getCurrentPosition } from '../../lib/geolocation';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function CreateRestaurantPage() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [cityId, setCityId] = useState('');
+  // The backend stores cityId as a UUID, not a human-readable city name —
+  // there's no "list cities" endpoint to pick from, so we generate one and
+  // let the owner keep or regenerate it. Reuse the same value across
+  // restaurants that should be grouped as the same city.
+  const [cityId, setCityId] = useState<string>(() => crypto.randomUUID());
   const [address, setAddress] = useState('');
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
@@ -37,13 +43,17 @@ export function CreateRestaurantPage() {
       setError('Latitude and longitude are required — use "Use my current location" or enter them manually.');
       return;
     }
+    if (!UUID_PATTERN.test(cityId.trim())) {
+      setError('City ID must be a UUID — use the generated value, or click "New ID".');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       const restaurant = await api.restaurants.create({
         name,
         description: description || undefined,
-        cityId,
+        cityId: cityId.trim(),
         address: address || undefined,
         latitude: lat,
         longitude: lng,
@@ -83,14 +93,25 @@ export function CreateRestaurantPage() {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-ink">City ID</label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-sm font-medium text-ink">City ID</label>
+              <button
+                type="button"
+                onClick={() => setCityId(crypto.randomUUID())}
+                className="text-xs font-medium text-ticket-500 hover:underline"
+              >
+                New ID
+              </button>
+            </div>
             <input
               required
               value={cityId}
               onChange={(e) => setCityId(e.target.value)}
-              placeholder="e.g. bengaluru"
-              className="w-full rounded-ticket border border-line bg-white px-3 py-2 text-ink focus:border-ticket-500"
+              className="w-full rounded-ticket border border-line bg-white px-3 py-2 font-mono text-xs text-ink focus:border-ticket-500"
             />
+            <p className="mt-1 text-xs text-ink/40">
+              An internal identifier, not a city name. Reuse the same one across restaurants in the same city.
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-ink">Street address (optional)</label>

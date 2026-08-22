@@ -22,6 +22,7 @@ function OrderCard({ order, onUpdated }: { order: Order; onUpdated: (o: Order) =
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const actions = RESTAURANT_STATUS_ACTIONS[order.status] ?? [];
+  const items = order.items ?? [];
 
   async function applyStatus(status: OrderStatus) {
     setUpdating(true);
@@ -50,12 +51,16 @@ function OrderCard({ order, onUpdated }: { order: Order; onUpdated: (o: Order) =
       </div>
 
       <div className="mt-3 space-y-1">
-        {order.items.map((item) => (
-          <p key={item.id} className="text-sm text-ink/80">
-            {item.quantity}× {item.menuItemName ?? 'Item'}
-            {item.notes && <span className="text-ink/50"> — {item.notes}</span>}
-          </p>
-        ))}
+        {items.length > 0 ? (
+          items.map((item) => (
+            <p key={item.id} className="text-sm text-ink/80">
+              {item.quantity}× {item.menuItemName ?? 'Item'}
+              {item.notes && <span className="text-ink/50"> — {item.notes}</span>}
+            </p>
+          ))
+        ) : (
+          <p className="text-sm text-ink/40">Item details unavailable.</p>
+        )}
       </div>
 
       <p className="mt-3 text-sm text-ink/60">Deliver to: {order.deliveryAddress}</p>
@@ -73,7 +78,7 @@ function OrderCard({ order, onUpdated }: { order: Order; onUpdated: (o: Order) =
               key={action.status}
               onClick={() => applyStatus(action.status)}
               disabled={updating}
-              className={`rounded-ticket px-3 py-1.5 text-sm font-medium disabled:opacity-60 ${
+              className={`rounded-ticket px-3 py-1.5 text-sm font-medium transition-colors duration-150 disabled:opacity-60 ${
                 action.status === OrderStatus.CANCELLED
                   ? 'border border-ticket-500 text-ticket-500 hover:bg-ticket-50'
                   : 'bg-ink text-paper hover:bg-ticket-500'
@@ -100,10 +105,17 @@ export function OwnerOrdersPanel({ restaurantId }: { restaurantId: string }) {
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     api.orders
       .forRestaurant(restaurantId, { page, limit: 20 })
-      .then((result) => {
-        setOrders((prev) => (page === 1 ? result.data : [...prev, ...result.data]));
+      .then(async (result) => {
+        // The list endpoint doesn't include line items (only orders.get(id)
+        // does) — back-fill full details per order so the board actually
+        // shows what was ordered, which is the entire point of it.
+        const enriched = await Promise.all(
+          result.data.map((o) => api.orders.get(o.id).catch(() => o)),
+        );
+        setOrders((prev) => (page === 1 ? enriched : [...prev, ...enriched]));
         setTotalPages(result.totalPages);
       })
       .catch(() => setError('Could not load orders.'))
@@ -127,7 +139,7 @@ export function OwnerOrdersPanel({ restaurantId }: { restaurantId: string }) {
         <button
           onClick={() => setPage((p) => p + 1)}
           disabled={loading}
-          className="w-full rounded-ticket border border-line py-2.5 text-sm font-medium text-ink hover:border-ticket-500 disabled:opacity-60"
+          className="w-full rounded-ticket border border-line py-2.5 text-sm font-medium text-ink transition-colors duration-150 hover:border-ticket-500 disabled:opacity-60"
         >
           {loading ? 'Loading…' : 'Load more'}
         </button>

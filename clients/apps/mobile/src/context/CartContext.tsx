@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { MenuItem, Restaurant } from '@foodexpress/api-client';
+import { useAuth } from './AuthContext';
 
 export interface CartLine {
   menuItem: MenuItem;
@@ -24,13 +25,22 @@ interface CartContextValue extends CartState {
   itemCount: number;
 }
 
+const EMPTY_CART: CartState = { restaurantId: null, restaurantName: null, lines: [] };
 const CartContext = createContext<CartContextValue | undefined>(undefined);
 
 // In-memory for this scaffold — cart resets on app restart. Swap in
 // @react-native-async-storage/async-storage (mirroring the web app's
 // localStorage persistence) if you want it to survive restarts.
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<CartState>({ restaurantId: null, restaurantName: null, lines: [] });
+  const { user } = useAuth();
+  const [state, setState] = useState<CartState>(EMPTY_CART);
+
+  // Without this, logging out of one account and into another in the same
+  // app session keeps showing the first account's cart — the same bug
+  // fixed on web, just without localStorage to key off of here.
+  useEffect(() => {
+    setState(EMPTY_CART);
+  }, [user?.id]);
 
   function canAddFrom(restaurantId: string) {
     return state.restaurantId === null || state.restaurantId === restaurantId;
@@ -74,7 +84,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }
 
   function clear() {
-    setState({ restaurantId: null, restaurantName: null, lines: [] });
+    setState(EMPTY_CART);
   }
 
   const subtotal = state.lines.reduce((sum, l) => sum + l.menuItem.price * l.quantity, 0);

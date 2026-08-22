@@ -102,7 +102,7 @@ export function OrderTrackingPage() {
 
       <div className="mt-4 rounded-ticket border border-line bg-white p-4">
         <p className="mb-2 text-sm font-medium text-ink">Items</p>
-        {order.items.map((item) => (
+        {(order.items ?? []).map((item) => (
           <div key={item.id} className="flex justify-between py-1 text-sm">
             <span className="text-ink/80">
               {item.quantity}× {item.menuItemName ?? 'Item'}

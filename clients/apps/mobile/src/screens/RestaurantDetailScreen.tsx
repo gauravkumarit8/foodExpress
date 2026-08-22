@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MenuItem, Restaurant } from '@foodexpress/api-client';
 import type { HomeStackParamList } from '../navigation/types';
 import { api } from '../lib/api';
 import { useCart } from '../context/CartContext';
 import { MenuItemRow } from '../components/MenuItemRow';
+import { RestaurantThumb } from '../components/RestaurantThumb';
 import { colors, fonts, radius } from '../theme';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'RestaurantDetail'>;
@@ -47,6 +48,11 @@ export function RestaurantDetailScreen({ route, navigation }: Props) {
     cart.addItem(restaurant, item);
   }
 
+  function handleDecrement(item: MenuItem) {
+    const current = cart.lines.find((l) => l.menuItem.id === item.id)?.quantity ?? 0;
+    cart.updateQuantity(item.id, current - 1);
+  }
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -68,9 +74,7 @@ export function RestaurantDetailScreen({ route, navigation }: Props) {
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
-          <View style={styles.thumb}>
-            {restaurant.imageUrl && <Image source={{ uri: restaurant.imageUrl }} style={styles.thumbImg} />}
-          </View>
+          <RestaurantThumb src={restaurant.imageUrl} size={80} />
           <View style={styles.headerInfo}>
             <Text style={styles.name}>{restaurant.name}</Text>
             {restaurant.description && <Text style={styles.desc}>{restaurant.description}</Text>}
@@ -97,6 +101,7 @@ export function RestaurantDetailScreen({ route, navigation }: Props) {
                     item={item}
                     quantityInCart={cart.lines.find((l) => l.menuItem.id === item.id)?.quantity ?? 0}
                     onAdd={() => handleAdd(item)}
+                    onDecrement={() => handleDecrement(item)}
                   />
                 ))}
             </View>
@@ -123,8 +128,6 @@ const styles = StyleSheet.create({
   loadingText: { fontFamily: fonts.body, color: colors.ink + '80' },
   errorText: { fontFamily: fonts.body, color: colors.ticket[500] },
   headerRow: { flexDirection: 'row', gap: 16, marginBottom: 20 },
-  thumb: { width: 80, height: 80, borderRadius: radius.ticket, backgroundColor: colors.paperDark, overflow: 'hidden' },
-  thumbImg: { width: '100%', height: '100%' },
   headerInfo: { flex: 1 },
   name: { fontFamily: fonts.display, fontSize: 20, color: colors.ink },
   desc: { fontFamily: fonts.body, fontSize: 13, color: colors.ink + '99', marginTop: 4 },

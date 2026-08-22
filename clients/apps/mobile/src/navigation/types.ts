@@ -19,5 +19,7 @@ export type OrdersStackParamList = {
 export type MainTabParamList = {
   HomeTab: undefined;
   OrdersTab: undefined;
+  DashboardTab: undefined;
+  DeliveriesTab: undefined;
   ProfileTab: undefined;
 };

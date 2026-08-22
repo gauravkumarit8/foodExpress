@@ -113,7 +113,7 @@ export function OrderTrackingScreen({ route }: Props) {
 
       <View style={styles.itemsCard}>
         <Text style={styles.itemsTitle}>Items</Text>
-        {order.items.map((item) => (
+        {(order.items ?? []).map((item) => (
           <View key={item.id} style={styles.itemRow}>
             <Text style={styles.itemName}>
               {item.quantity}× {item.menuItemName ?? 'Item'}

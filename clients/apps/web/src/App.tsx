@@ -5,9 +5,10 @@ import { CartProvider } from './context/CartContext';
 import { NavBar } from './components/NavBar';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { RequireRole } from './components/RequireRole';
+import { CustomerRoute } from './components/CustomerRoute';
+import { RoleAwareHome } from './components/RoleAwareHome';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
-import { RestaurantListPage } from './pages/RestaurantListPage';
 import { RestaurantDetailPage } from './pages/RestaurantDetailPage';
 import { CartPage } from './pages/CartPage';
 import { CheckoutPage } from './pages/CheckoutPage';
@@ -25,16 +26,25 @@ export default function App() {
         <BrowserRouter>
           <NavBar />
           <Routes>
-            <Route path="/" element={<RestaurantListPage />} />
+            <Route path="/" element={<RoleAwareHome />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/restaurants/:id" element={<RestaurantDetailPage />} />
-            <Route path="/cart" element={<CartPage />} />
+            <Route
+              path="/cart"
+              element={
+                <CustomerRoute>
+                  <CartPage />
+                </CustomerRoute>
+              }
+            />
             <Route
               path="/checkout"
               element={
                 <ProtectedRoute>
-                  <CheckoutPage />
+                  <CustomerRoute>
+                    <CheckoutPage />
+                  </CustomerRoute>
                 </ProtectedRoute>
               }
             />
@@ -42,7 +52,9 @@ export default function App() {
               path="/orders"
               element={
                 <ProtectedRoute>
-                  <OrderHistoryPage />
+                  <CustomerRoute>
+                    <OrderHistoryPage />
+                  </CustomerRoute>
                 </ProtectedRoute>
               }
             />
@@ -50,7 +62,9 @@ export default function App() {
               path="/orders/:id"
               element={
                 <ProtectedRoute>
-                  <OrderTrackingPage />
+                  <CustomerRoute>
+                    <OrderTrackingPage />
+                  </CustomerRoute>
                 </ProtectedRoute>
               }
             />

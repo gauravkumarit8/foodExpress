@@ -1,13 +1,15 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Restaurant } from '@foodexpress/api-client';
 import { colors, fonts, radius } from '../theme';
+import { RestaurantThumb } from './RestaurantThumb';
 
 export function RestaurantCard({ restaurant, onPress }: { restaurant: Restaurant; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={styles.card}>
-      <View style={styles.thumb}>
-        {restaurant.imageUrl && <Image source={{ uri: restaurant.imageUrl }} style={styles.thumbImg} />}
-      </View>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+    >
+      <RestaurantThumb src={restaurant.imageUrl} size={64} />
       <View style={styles.info}>
         <Text style={styles.name} numberOfLines={1}>
           {restaurant.name}
@@ -37,14 +39,11 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
   },
-  thumb: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.ticket,
-    backgroundColor: colors.paperDark,
-    overflow: 'hidden',
+  cardPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.99 }],
+    borderColor: colors.ticket[500],
   },
-  thumbImg: { width: '100%', height: '100%' },
   info: { flex: 1, minWidth: 0 },
   name: { fontFamily: fonts.display, fontSize: 16, color: colors.ink },
   desc: { fontFamily: fonts.body, fontSize: 13, color: colors.ink + '99', marginTop: 2 },

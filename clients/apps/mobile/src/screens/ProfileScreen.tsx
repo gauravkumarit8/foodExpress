@@ -9,19 +9,32 @@ const ROLE_LABEL: Record<string, string> = {
   admin: 'Admin',
 };
 
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase() || '?';
+}
+
 export function ProfileScreen() {
   const { user, logout } = useAuth();
   if (!user) return null;
 
   return (
     <View style={styles.screen}>
-      <Text style={styles.title}>Profile</Text>
+      <View style={styles.header}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{initialsOf(user.name)}</Text>
+        </View>
+        <View>
+          <Text style={styles.name}>{user.name}</Text>
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleBadgeText}>{ROLE_LABEL[user.role] ?? user.role}</Text>
+          </View>
+        </View>
+      </View>
 
       <View style={styles.card}>
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Name</Text>
-          <Text style={styles.fieldValue}>{user.name}</Text>
-        </View>
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>Email</Text>
           <Text style={styles.fieldValue}>{user.email}</Text>
@@ -32,20 +45,9 @@ export function ProfileScreen() {
             <Text style={styles.fieldValue}>{user.phone}</Text>
           </View>
         )}
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Account type</Text>
-          <Text style={styles.fieldValue}>{ROLE_LABEL[user.role] ?? user.role}</Text>
-        </View>
       </View>
 
-      {user.role === 'restaurant_owner' && (
-        <Text style={styles.note}>The restaurant owner dashboard is coming in the next phase of this app.</Text>
-      )}
-      {user.role === 'rider' && (
-        <Text style={styles.note}>The rider delivery app is coming in the next phase of this app.</Text>
-      )}
-
-      <Pressable style={styles.logoutButton} onPress={logout}>
+      <Pressable style={({ pressed }) => [styles.logoutButton, pressed && { opacity: 0.6 }]} onPress={logout}>
         <Text style={styles.logoutText}>Log out</Text>
       </Pressable>
     </View>
@@ -54,12 +56,30 @@ export function ProfileScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.paper, padding: 24, paddingTop: 48 },
-  title: { fontFamily: fonts.display, fontSize: 22, color: colors.ink, marginBottom: 20 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 24 },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { fontFamily: fonts.display, fontSize: 18, color: colors.paper },
+  name: { fontFamily: fonts.display, fontSize: 20, color: colors.ink },
+  roleBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.paperDark,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginTop: 4,
+  },
+  roleBadgeText: { fontFamily: fonts.bodyMedium, fontSize: 11, color: colors.ink + '99' },
   card: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.ticket, backgroundColor: colors.white, padding: 20, gap: 16 },
   field: {},
   fieldLabel: { fontFamily: fonts.bodySemiBold, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: colors.ink + '66' },
   fieldValue: { fontFamily: fonts.body, fontSize: 15, color: colors.ink, marginTop: 2 },
-  note: { fontFamily: fonts.body, fontSize: 13, color: colors.ink + '80', marginTop: 16 },
   logoutButton: { marginTop: 32, alignSelf: 'flex-start' },
   logoutText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.ticket[500] },
 });
